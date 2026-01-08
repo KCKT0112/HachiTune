@@ -1,14 +1,15 @@
-# 大市修 - PC NSF HifiGAN Pitch Editor
-
-![Logo](logo.jpg)
-
 <center>
+<h1>大市修 - PC NSF HifiGAN Pitch Editor</h1>
+
+<img src="logo.jpg" alt="Logo" width="300" />
+
 <em>
 大市修于市，音符修于心
 </em>
-</center>
 
-A Melodyne-like pitch editing application built with JUCE framework, designed for use with PC-NSF-HiFiGAN vocoder.
+<small>A lightweight pitch editor inspired by Melodyne, built with the JUCE framework for PC-NSF-HiFiGAN vocoder integration.</small>
+
+</center>
 
 ## Features
 
@@ -116,15 +117,6 @@ pitch_editor_juce/
 - `Ctrl+S`: Export file
 - `Ctrl+Mouse Wheel`: Zoom
 - `Shift+Mouse Wheel`: Scroll vertically
-
-## TODO
-
-- [ ] Integrate LibTorch for real vocoder inference
-- [ ] Add formant shifting
-- [ ] Add volume editing
-- [ ] Implement undo/redo
-- [ ] Add keyboard shortcuts
-- [ ] Multi-track support
 
 ## License
 
