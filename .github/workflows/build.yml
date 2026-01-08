@@ -58,13 +58,13 @@ jobs:
           Copy-Item "build/PitchEditor_artefacts/Release/Pitch Editor.exe" -Destination "package/PitchEditor-Windows-CPU/PitchEditor.exe"
           Copy-Item onnxruntime/lib/onnxruntime.dll -Destination package/PitchEditor-Windows-CPU/
           Copy-Item -Recurse models -Destination package/PitchEditor-Windows-CPU/
-          Compress-Archive -Path package/PitchEditor-Windows-CPU -DestinationPath PitchEditor-Windows-CPU.zip
+          Compress-Archive -Path package/PitchEditor-Windows-CPU\* -DestinationPath PitchEditor-Windows-CPU.zip -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PitchEditor-Windows-CPU
-          path: PitchEditor-Windows-CPU.zip
+          path: package/PitchEditor-Windows-CPU
 
   build-windows-dml:
     runs-on: windows-latest
@@ -124,13 +124,13 @@ jobs:
           Copy-Item onnxruntime/lib/onnxruntime.dll -Destination package/PitchEditor-Windows-DirectML/
           Copy-Item onnxruntime/lib/DirectML.dll -Destination package/PitchEditor-Windows-DirectML/
           Copy-Item -Recurse models -Destination package/PitchEditor-Windows-DirectML/
-          Compress-Archive -Path package/PitchEditor-Windows-DirectML -DestinationPath PitchEditor-Windows-DirectML.zip
+          Compress-Archive -Path package/PitchEditor-Windows-DirectML\* -DestinationPath PitchEditor-Windows-DirectML.zip -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PitchEditor-Windows-DirectML
-          path: PitchEditor-Windows-DirectML.zip
+          path: package/PitchEditor-Windows-DirectML
 
   build-macos:
     runs-on: macos-latest
@@ -286,6 +286,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Prepare release files
+        run: |
+          set -e
+          cd artifacts || exit 0
+          if [ -d "PitchEditor-Windows-CPU" ] && [ ! -f "PitchEditor-Windows-CPU.zip" ]; then
+            zip -r PitchEditor-Windows-CPU.zip PitchEditor-Windows-CPU
+          fi
+          if [ -d "PitchEditor-Windows-DirectML" ] && [ ! -f "PitchEditor-Windows-DirectML.zip" ]; then
+            zip -r PitchEditor-Windows-DirectML.zip PitchEditor-Windows-DirectML
+          fi
+          if [ -d "PitchEditor-macOS" ] && [ ! -f "PitchEditor-macOS.zip" ]; then
+            zip -r PitchEditor-macOS.zip PitchEditor-macOS || true
+          fi
+          if [ -d "PitchEditor-Linux" ] && [ ! -f "PitchEditor-Linux.tar.gz" ]; then
+            tar -czvf PitchEditor-Linux.tar.gz PitchEditor-Linux || true
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
