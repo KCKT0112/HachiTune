@@ -132,61 +132,61 @@ jobs:
           name: PitchEditor-Windows-DirectML
           path: package/PitchEditor-Windows-DirectML
 
-  build-macos:
-    runs-on: macos-latest
+  # build-macos:
+  #   runs-on: macos-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
 
-      - name: Cache JUCE
-        id: cache-juce
-        uses: actions/cache@v3
-        with:
-          path: JUCE
-          key: juce-macos-${{ hashFiles('CMakeLists.txt') }}
+  #     - name: Cache JUCE
+  #       id: cache-juce
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: JUCE
+  #         key: juce-macos-${{ hashFiles('CMakeLists.txt') }}
 
-      - name: Clone JUCE
-        if: steps.cache-juce.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch 7.0.9 https://github.com/juce-framework/JUCE.git
+  #     - name: Clone JUCE
+  #       if: steps.cache-juce.outputs.cache-hit != 'true'
+  #       run: |
+  #         git clone --depth 1 --branch 7.0.9 https://github.com/juce-framework/JUCE.git
 
-      - name: Download ONNX Runtime
-        run: |
-          curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ONNX_VERSION }}/onnxruntime-osx-universal2-${{ env.ONNX_VERSION }}.tgz" -o onnxruntime.tgz
-          tar -xzf onnxruntime.tgz
-          mv onnxruntime-osx-universal2-${{ env.ONNX_VERSION }} onnxruntime
+  #     - name: Download ONNX Runtime
+  #       run: |
+  #         curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ONNX_VERSION }}/onnxruntime-osx-universal2-${{ env.ONNX_VERSION }}.tgz" -o onnxruntime.tgz
+  #         tar -xzf onnxruntime.tgz
+  #         mv onnxruntime-osx-universal2-${{ env.ONNX_VERSION }} onnxruntime
 
-      - name: Configure CMake
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DONNXRUNTIME_ROOT="./onnxruntime"
+  #     - name: Configure CMake
+  #       run: |
+  #         cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DONNXRUNTIME_ROOT="./onnxruntime"
 
-      - name: Build
-        run: |
-          cmake --build build --config ${{ env.BUILD_TYPE }}
+  #     - name: Build
+  #       run: |
+  #         cmake --build build --config ${{ env.BUILD_TYPE }}
 
-      - name: Package
-        run: |
-          mkdir -p package
-          APP_PATH=$(find build -name "PitchEditor.app" -type d | head -1)
-          if [ -n "$APP_PATH" ]; then
-            cp -r "$APP_PATH" package/
-          fi
-          mkdir -p package/PitchEditor.app/Contents/Frameworks
-          cp onnxruntime/lib/libonnxruntime*.dylib package/PitchEditor.app/Contents/Frameworks/
-          mkdir -p package/PitchEditor.app/Contents/Resources/models
-          cp models/pc_nsf_hifigan.onnx package/PitchEditor.app/Contents/Resources/models/
-          install_name_tool -add_rpath @executable_path/../Frameworks package/PitchEditor.app/Contents/MacOS/PitchEditor || true
-          cd package
-          zip -r ../PitchEditor-macOS.zip PitchEditor.app
+  #     - name: Package
+  #       run: |
+  #         mkdir -p package
+  #         APP_PATH=$(find build -name "PitchEditor.app" -type d | head -1)
+  #         if [ -n "$APP_PATH" ]; then
+  #           cp -r "$APP_PATH" package/
+  #         fi
+  #         mkdir -p package/PitchEditor.app/Contents/Frameworks
+  #         cp onnxruntime/lib/libonnxruntime*.dylib package/PitchEditor.app/Contents/Frameworks/
+  #         mkdir -p package/PitchEditor.app/Contents/Resources/models
+  #         cp models/pc_nsf_hifigan.onnx package/PitchEditor.app/Contents/Resources/models/
+  #         install_name_tool -add_rpath @executable_path/../Frameworks package/PitchEditor.app/Contents/MacOS/PitchEditor || true
+  #         cd package
+  #         zip -r ../PitchEditor-macOS.zip PitchEditor.app
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PitchEditor-macOS
-          path: PitchEditor-macOS.zip
+  #     - name: Upload Artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: PitchEditor-macOS
+  #         path: PitchEditor-macOS.zip
 
   build-linux:
     runs-on: ubuntu-22.04
