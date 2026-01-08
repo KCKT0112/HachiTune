@@ -74,6 +74,8 @@ target_sources(PitchEditor PRIVATE
     Source/UI/ToolbarComponent.h
     Source/UI/ParameterPanel.cpp
     Source/UI/ParameterPanel.h
+    Source/UI/SettingsComponent.cpp
+    Source/UI/SettingsComponent.h
     Source/Models/Project.cpp
     Source/Models/Project.h
     Source/Models/Note.cpp

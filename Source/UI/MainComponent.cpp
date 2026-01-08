@@ -12,6 +12,9 @@ MainComponent::MainComponent()
     pitchDetector = std::make_unique<PitchDetector>();
     vocoder = std::make_unique<Vocoder>();
     
+    // Load vocoder settings
+    applySettings();
+    
     // Initialize audio
     audioEngine->initializeAudio();
     
@@ -28,6 +31,7 @@ MainComponent::MainComponent()
     toolbar.onPause = [this]() { pause(); };
     toolbar.onStop = [this]() { stop(); };
     toolbar.onResynthesize = [this]() { resynthesize(); };
+    toolbar.onSettings = [this]() { showSettings(); };
     toolbar.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
     
     // Setup piano roll callbacks
@@ -542,6 +546,58 @@ void MainComponent::segmentIntoNotes()
             note.setF0Values(std::move(f0Values));
             
             notes.push_back(note);
+        }
+    }
+}
+
+void MainComponent::showSettings()
+{
+    if (!settingsDialog)
+    {
+        settingsDialog = std::make_unique<SettingsDialog>();
+        settingsDialog->getSettingsComponent()->onSettingsChanged = [this]()
+        {
+            applySettings();
+        };
+    }
+    
+    settingsDialog->setVisible(true);
+    settingsDialog->toFront(true);
+}
+
+void MainComponent::applySettings()
+{
+    // Load settings from file
+    auto settingsFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("PitchEditor")
+                            .getChildFile("settings.xml");
+    
+    juce::String device = "CPU";
+    int threads = 0;
+    
+    if (settingsFile.existsAsFile())
+    {
+        auto xml = juce::XmlDocument::parse(settingsFile);
+        if (xml != nullptr)
+        {
+            device = xml->getStringAttribute("device", "CPU");
+            threads = xml->getIntAttribute("threads", 0);
+        }
+    }
+    
+    DBG("Applying settings: device=" + device + ", threads=" + juce::String(threads));
+    
+    // Apply to vocoder
+    if (vocoder)
+    {
+        vocoder->setExecutionDevice(device);
+        vocoder->setNumThreads(threads);
+        
+        // Reload model if already loaded to apply new execution provider
+        if (vocoder->isLoaded())
+        {
+            DBG("Reloading vocoder model with new settings...");
+            vocoder->reloadModel();
         }
     }
 }

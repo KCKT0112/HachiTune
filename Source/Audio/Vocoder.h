@@ -73,12 +73,24 @@ public:
     int getNumMels() const { return numMels; }
     bool isPitchControllable() const { return pitchControllable; }
     
+    // Device settings
+    void setExecutionDevice(const juce::String& device);
+    void setNumThreads(int threads);
+    juce::String getExecutionDevice() const { return executionDevice; }
+    int getNumThreads() const { return inferenceThreads; }
+    
+    // Reload model with new settings (call after changing device/threads)
+    bool reloadModel();
+    
 private:
     bool loaded = false;
     int sampleRate = 44100;
     int hopSize = 512;
     int numMels = 128;
     bool pitchControllable = true;
+    
+    juce::String executionDevice = "CPU";
+    int inferenceThreads = 0;  // 0 = auto
     
     juce::File modelFile;
     std::unique_ptr<std::ofstream> logFile;
@@ -95,6 +107,9 @@ private:
     std::vector<const char*> outputNames;
     std::vector<std::string> inputNameStrings;
     std::vector<std::string> outputNameStrings;
+    
+    // Create session options based on current settings
+    Ort::SessionOptions createSessionOptions();
 #endif
     
     /**

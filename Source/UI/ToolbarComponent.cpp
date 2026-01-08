@@ -8,18 +8,20 @@ ToolbarComponent::ToolbarComponent()
     addAndMakeVisible(playButton);
     addAndMakeVisible(stopButton);
     addAndMakeVisible(resynthButton);
+    addAndMakeVisible(settingsButton);
     
     openButton.addListener(this);
     exportButton.addListener(this);
     playButton.addListener(this);
     stopButton.addListener(this);
     resynthButton.addListener(this);
+    settingsButton.addListener(this);
     
     // Style buttons
     auto buttonColor = juce::Colour(0xFF3D3D47);
     auto textColor = juce::Colours::white;
     
-    for (auto* btn : { &openButton, &exportButton, &playButton, &stopButton, &resynthButton })
+    for (auto* btn : { &openButton, &exportButton, &playButton, &stopButton, &resynthButton, &settingsButton })
     {
         btn->setColour(juce::TextButton::buttonColourId, buttonColor);
         btn->setColour(juce::TextButton::textColourOffId, textColor);
@@ -83,7 +85,9 @@ void ToolbarComponent::resized()
     timeLabel.setBounds(bounds.removeFromLeft(180));
     bounds.removeFromLeft(20);
     
-    // Right side - zoom
+    // Right side - settings and zoom
+    settingsButton.setBounds(bounds.removeFromRight(80));
+    bounds.removeFromRight(10);
     zoomLabel.setBounds(bounds.removeFromRight(50));
     bounds.removeFromRight(4);
     zoomSlider.setBounds(bounds.removeFromRight(150));
@@ -112,6 +116,8 @@ void ToolbarComponent::buttonClicked(juce::Button* button)
         onStop();
     else if (button == &resynthButton && onResynthesize)
         onResynthesize();
+    else if (button == &settingsButton && onSettings)
+        onSettings();
 }
 
 void ToolbarComponent::sliderValueChanged(juce::Slider* slider)

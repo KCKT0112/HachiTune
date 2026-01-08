@@ -43,7 +43,14 @@ cd build
 :: Configure with CMake
 echo.
 echo Configuring with CMake...
-set ONNXRUNTIME_ROOT=%~dp0..\onnxruntime-win-x64-1.18.0
+:: Use DirectML version if available, otherwise fallback to CPU version
+if exist "%~dp0..\onnxruntime-directml-win-x64" (
+    set ONNXRUNTIME_ROOT=%~dp0..\onnxruntime-directml-win-x64
+    echo Using DirectML ONNX Runtime
+) else (
+    set ONNXRUNTIME_ROOT=%~dp0..\onnxruntime-win-x64-1.18.0
+    echo Using CPU ONNX Runtime
+)
 cmake -G "Visual Studio 17 2022" -A x64 -DONNXRUNTIME_ROOT="%ONNXRUNTIME_ROOT%" ..
 if errorlevel 1 (
     echo CMake configuration failed

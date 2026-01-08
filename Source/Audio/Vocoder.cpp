@@ -95,24 +95,8 @@ bool Vocoder::loadModel(const juce::File& modelPath)
     }
     
     try {
-        // Session options - optimize for performance
-        Ort::SessionOptions sessionOptions;
-        
-        // Use all available CPU cores
-        int numCores = std::thread::hardware_concurrency();
-        sessionOptions.SetIntraOpNumThreads(numCores);
-        sessionOptions.SetInterOpNumThreads(numCores);
-        
-        // Enable all optimizations
-        sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        
-        // Enable memory pattern optimization
-        sessionOptions.EnableMemPattern();
-        
-        // Enable CPU memory arena
-        sessionOptions.EnableCpuMemArena();
-        
-        log("ONNX Runtime using " + std::to_string(numCores) + " threads");
+        // Create session with current settings
+        Ort::SessionOptions sessionOptions = createSessionOptions();
         
         // Create session
 #ifdef _WIN32
@@ -432,3 +416,121 @@ std::vector<float> Vocoder::generateSineFallback(const std::vector<float>& f0)
     
     return waveform;
 }
+
+void Vocoder::setExecutionDevice(const juce::String& device)
+{
+    if (executionDevice != device)
+    {
+        executionDevice = device;
+        log("Execution device set to: " + device.toStdString());
+    }
+}
+
+void Vocoder::setNumThreads(int threads)
+{
+    if (inferenceThreads != threads)
+    {
+        inferenceThreads = threads;
+        log("Thread count set to: " + std::to_string(threads) + 
+            (threads == 0 ? " (auto)" : ""));
+    }
+}
+
+bool Vocoder::reloadModel()
+{
+    if (!modelFile.existsAsFile())
+    {
+        log("Cannot reload: no model file set");
+        return false;
+    }
+    
+    log("Reloading model with new settings...");
+    
+#ifdef HAVE_ONNXRUNTIME
+    // Release existing session
+    onnxSession.reset();
+    inputNames.clear();
+    outputNames.clear();
+    inputNameStrings.clear();
+    outputNameStrings.clear();
+    loaded = false;
+#endif
+    
+    return loadModel(modelFile);
+}
+
+#ifdef HAVE_ONNXRUNTIME
+Ort::SessionOptions Vocoder::createSessionOptions()
+{
+    Ort::SessionOptions sessionOptions;
+    
+    // Set thread count
+    int numThreads = inferenceThreads;
+    if (numThreads <= 0)
+    {
+        numThreads = std::thread::hardware_concurrency();
+    }
+    sessionOptions.SetIntraOpNumThreads(numThreads);
+    sessionOptions.SetInterOpNumThreads(numThreads);
+    
+    // Enable all optimizations
+    sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    
+    // Enable memory pattern optimization
+    sessionOptions.EnableMemPattern();
+    
+    // Enable CPU memory arena
+    sessionOptions.EnableCpuMemArena();
+    
+    log("Creating session with device: " + executionDevice.toStdString() + 
+        ", threads: " + std::to_string(numThreads));
+    
+    // Add execution provider based on device selection
+    if (executionDevice == "CUDA")
+    {
+        try {
+            OrtCUDAProviderOptions cudaOptions{};
+            cudaOptions.device_id = 0;
+            sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
+            log("CUDA execution provider added");
+        } catch (const Ort::Exception& e) {
+            log("Failed to add CUDA provider: " + std::string(e.what()));
+            log("Falling back to CPU");
+        }
+    }
+    else if (executionDevice == "DirectML")
+    {
+        try {
+            sessionOptions.AppendExecutionProvider("DML");
+            log("DirectML execution provider added");
+        } catch (const Ort::Exception& e) {
+            log("Failed to add DirectML provider: " + std::string(e.what()));
+            log("Falling back to CPU");
+        }
+    }
+    else if (executionDevice == "CoreML")
+    {
+        try {
+            sessionOptions.AppendExecutionProvider("CoreML");
+            log("CoreML execution provider added");
+        } catch (const Ort::Exception& e) {
+            log("Failed to add CoreML provider: " + std::string(e.what()));
+            log("Falling back to CPU");
+        }
+    }
+    else if (executionDevice == "TensorRT")
+    {
+        try {
+            OrtTensorRTProviderOptions trtOptions{};
+            sessionOptions.AppendExecutionProvider_TensorRT(trtOptions);
+            log("TensorRT execution provider added");
+        } catch (const Ort::Exception& e) {
+            log("Failed to add TensorRT provider: " + std::string(e.what()));
+            log("Falling back to CPU");
+        }
+    }
+    // CPU is the default fallback
+    
+    return sessionOptions;
+}
+#endif

@@ -27,6 +27,7 @@ public:
     std::function<void()> onOpenFile;
     std::function<void()> onExportFile;
     std::function<void()> onResynthesize;
+    std::function<void()> onSettings;
     std::function<void(float)> onZoomChanged;
     
 private:
@@ -39,6 +40,7 @@ private:
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
     juce::TextButton resynthButton { "Resynth" };
+    juce::TextButton settingsButton { "Settings" };
     
     juce::Label timeLabel;
     

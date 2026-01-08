@@ -9,6 +9,7 @@
 #include "PianoRollComponent.h"
 #include "WaveformComponent.h"
 #include "ParameterPanel.h"
+#include "SettingsComponent.h"
 
 class MainComponent : public juce::Component,
                       public juce::Timer
@@ -30,6 +31,8 @@ private:
     void stop();
     void seek(double time);
     void resynthesize();
+    void showSettings();
+    void applySettings();
     
     void onNoteSelected(Note* note);
     void onPitchEdited();
@@ -49,6 +52,8 @@ private:
     PianoRollComponent pianoRoll;
     WaveformComponent waveform;
     ParameterPanel parameterPanel;
+    
+    std::unique_ptr<SettingsDialog> settingsDialog;
     
     std::unique_ptr<juce::FileChooser> fileChooser;
     
