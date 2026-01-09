@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <numeric>
 
+#if defined(_WIN32) && defined(USE_DIRECTML)
+#include <dml_provider_factory.h>
+#endif
+
 FCPEPitchDetector::FCPEPitchDetector()
 {
     initMelFilterbank();
