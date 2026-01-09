@@ -76,9 +76,16 @@ public:
      * @param threshold Confidence threshold (default 0.05)
      * @return F0 values in Hz (0 for unvoiced frames)
      */
-    std::vector<float> extractF0(const float* audio, int numSamples, 
+    std::vector<float> extractF0(const float* audio, int numSamples,
                                   int sampleRate, float threshold = 0.05f);
-    
+
+    /**
+     * Extract F0 with progress callback.
+     */
+    std::vector<float> extractF0WithProgress(const float* audio, int numSamples,
+                                              int sampleRate, float threshold,
+                                              std::function<void(double)> progressCallback);
+
     /**
      * Get the number of F0 frames that will be produced for given audio length.
      */

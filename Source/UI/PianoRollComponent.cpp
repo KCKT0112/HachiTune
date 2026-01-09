@@ -65,6 +65,20 @@ void PianoRollComponent::paint(juce::Graphics &g) {
   // Draw timeline (above grid, scrolls horizontally)
   drawTimeline(g);
 
+  // Draw cursor triangle in timeline area (pointing down)
+  {
+    float x = static_cast<float>(pianoKeysWidth) + timeToX(cursorTime) -
+              static_cast<float>(scrollX);
+    constexpr float triSize = 5.0f;
+    juce::Path triangle;
+    triangle.addTriangle(
+        x - triSize, static_cast<float>(timelineHeight) - triSize * 1.5f,
+        x + triSize, static_cast<float>(timelineHeight) - triSize * 1.5f, x,
+        static_cast<float>(timelineHeight));
+    g.setColour(juce::Colours::white);
+    g.fillPath(triangle);
+  }
+
   // Draw piano keys
   drawPianoKeys(g);
 }
@@ -77,9 +91,9 @@ void PianoRollComponent::resized() {
       pianoKeysWidth, bounds.getHeight() - scrollBarSize,
       bounds.getWidth() - pianoKeysWidth - scrollBarSize, scrollBarSize);
 
-  verticalScrollBar.setBounds(bounds.getWidth() - scrollBarSize, timelineHeight,
-                              scrollBarSize,
-                              bounds.getHeight() - scrollBarSize - timelineHeight);
+  verticalScrollBar.setBounds(
+      bounds.getWidth() - scrollBarSize, timelineHeight, scrollBarSize,
+      bounds.getHeight() - scrollBarSize - timelineHeight);
 
   updateScrollBars();
 }
@@ -191,8 +205,8 @@ void PianoRollComponent::drawGrid(juce::Graphics &g) {
 void PianoRollComponent::drawTimeline(juce::Graphics &g) {
   constexpr int scrollBarSize = 8;
   auto timelineArea = juce::Rectangle<int>(
-      pianoKeysWidth, 0,
-      getWidth() - pianoKeysWidth - scrollBarSize, timelineHeight);
+      pianoKeysWidth, 0, getWidth() - pianoKeysWidth - scrollBarSize,
+      timelineHeight);
 
   // Background
   g.setColour(juce::Colour(0xFF1E1E28));
@@ -221,8 +235,10 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
   // Draw ticks and labels
   g.setFont(11.0f);
 
-  for (float time = 0.0f; time <= duration + secondsPerTick; time += secondsPerTick) {
-    float x = pianoKeysWidth + time * pixelsPerSecond - static_cast<float>(scrollX);
+  for (float time = 0.0f; time <= duration + secondsPerTick;
+       time += secondsPerTick) {
+    float x =
+        pianoKeysWidth + time * pixelsPerSecond - static_cast<float>(scrollX);
 
     if (x < pianoKeysWidth - 50 || x > getWidth())
       continue;
@@ -232,7 +248,8 @@ void PianoRollComponent::drawTimeline(juce::Graphics &g) {
     int tickHeight = isMajor ? 8 : 4;
 
     g.setColour(juce::Colour(COLOR_GRID_BAR));
-    g.drawVerticalLine(static_cast<int>(x), static_cast<float>(timelineHeight - tickHeight),
+    g.drawVerticalLine(static_cast<int>(x),
+                       static_cast<float>(timelineHeight - tickHeight),
                        static_cast<float>(timelineHeight - 1));
 
     // Time label (only on major ticks)
@@ -295,11 +312,12 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
       int samplesPerPixel = std::max(1, static_cast<int>(numNoteSamples / w));
 
       float centerY = y + h * 0.5f;
-      float waveHeight = h * 1.10f;
+      float waveHeight = h * 2.8f;
 
       // Build waveform data
       std::vector<float> waveValues;
-      float step = std::max(1.0f, w / 400.0f);  // Limit to ~400 points for smoothness
+      float step =
+          std::max(1.0f, w / 400.0f); // Limit to ~400 points for smoothness
 
       for (float px = 0; px <= w; px += step) {
         int sampleIdx =
@@ -317,8 +335,10 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
       size_t numPoints = waveValues.size();
       g.setColour(noteColor.withAlpha(0.85f));
       for (size_t i = 0; i + 1 < numPoints; ++i) {
-        float px1 = (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
-        float px2 = (static_cast<float>(i + 1) / static_cast<float>(numPoints - 1)) * w;
+        float px1 =
+            (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
+        float px2 =
+            (static_cast<float>(i + 1) / static_cast<float>(numPoints - 1)) * w;
         float halfH1 = waveValues[i] * waveHeight * 0.5f;
         float halfH2 = waveValues[i + 1] * waveHeight * 0.5f;
 
@@ -336,11 +356,13 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
       juce::Path outline;
       outline.startNewSubPath(x, centerY);
       for (size_t i = 0; i < numPoints; ++i) {
-        float px = (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
+        float px =
+            (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
         outline.lineTo(x + px, centerY - waveValues[i] * waveHeight * 0.5f);
       }
       for (int i = static_cast<int>(numPoints) - 1; i >= 0; --i) {
-        float px = (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
+        float px =
+            (static_cast<float>(i) / static_cast<float>(numPoints - 1)) * w;
         outline.lineTo(x + px, centerY + waveValues[i] * waveHeight * 0.5f);
       }
       outline.closeSubPath();
@@ -370,7 +392,8 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   for (const auto &note : project->getNotes()) {
     float noteOffset = note.getPitchOffset() + globalOffset;
     int startFrame = note.getStartFrame();
-    int endFrame = std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
+    int endFrame =
+        std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
     for (int i = startFrame; i < endFrame; ++i) {
       frameOffsets[i] = noteOffset;
     }
@@ -381,12 +404,13 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   juce::Path path;
   bool pathStarted = false;
   int gapFrames = 0;
-  const int maxGapFrames = 5;  // Allow small gaps to keep curve connected
+  const int maxGapFrames = 5; // Allow small gaps to keep curve connected
 
   for (size_t i = 0; i < audioData.f0.size(); ++i) {
     float f0 = audioData.f0[i];
 
-    if (f0 > 0.0f && i < audioData.voicedMask.size() && audioData.voicedMask[i]) {
+    if (f0 > 0.0f && i < audioData.voicedMask.size() &&
+        audioData.voicedMask[i]) {
       // Apply pitch offset
       float adjustedF0 = f0 * std::pow(2.0f, frameOffsets[i] / 12.0f);
       float midi = freqToMidi(adjustedF0);
@@ -421,14 +445,8 @@ void PianoRollComponent::drawCursor(juce::Graphics &g) {
   float x = timeToX(cursorTime);
   float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
 
-  // Triangle at top
-  constexpr float triSize = 6.0f;
-  juce::Path triangle;
-  triangle.addTriangle(x - triSize, 0.0f, x + triSize, 0.0f, x, triSize * 1.5f);
-
   g.setColour(juce::Colours::white);
-  g.fillPath(triangle);
-  g.fillRect(x - 0.5f, triSize, 1.0f, height);
+  g.fillRect(x - 0.5f, 0.0f, 1.0f, height);
 }
 
 void PianoRollComponent::drawPianoKeys(juce::Graphics &g) {
@@ -447,7 +465,8 @@ void PianoRollComponent::drawPianoKeys(juce::Graphics &g) {
 
   // Draw each key
   for (int midi = MIN_MIDI_NOTE; midi <= MAX_MIDI_NOTE; ++midi) {
-    float y = midiToY(static_cast<float>(midi)) - static_cast<float>(scrollY) + timelineHeight;
+    float y = midiToY(static_cast<float>(midi)) - static_cast<float>(scrollY) +
+              timelineHeight;
     int noteInOctave = midi % 12;
 
     // Check if it's a black key
@@ -532,11 +551,19 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
     if (onNoteSelected)
       onNoteSelected(note);
 
+    // Re-infer UV (unvoiced) regions using FCPE before starting drag
+    // This ensures smooth pitch transitions when transposing
+    int startFrame = note->getStartFrame();
+    int endFrame = note->getEndFrame();
+    if (onReinterpolateUV)
+      onReinterpolateUV(startFrame, endFrame);
+
     // Start dragging
     isDragging = true;
     draggedNote = note;
     dragStartY = static_cast<float>(e.y);
     originalPitchOffset = note->getPitchOffset();
+    lastAppliedOffset = originalPitchOffset;  // Initialize for incremental F0 updates
 
     repaint();
   } else {
@@ -567,7 +594,7 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
   }
 
   if (isDragging && draggedNote) {
-    // Calculate pitch offset from drag
+    // Calculate pitch change from drag
     float deltaY = dragStartY - e.y;
     float deltaSemitones = deltaY / pixelsPerSemitone;
 
@@ -579,6 +606,28 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
     }
 
     draggedNote->setPitchOffset(newOffset);
+
+    // Also update the actual F0 values in audioData to match the visual change
+    if (project) {
+      auto &audioData = project->getAudioData();
+      int startFrame = draggedNote->getStartFrame();
+      int endFrame = draggedNote->getEndFrame();
+
+      // Calculate the pitch ratio for this drag
+      float ratio = std::pow(2.0f, (newOffset - lastAppliedOffset) / 12.0f);
+
+      for (int i = startFrame; i < endFrame && i < static_cast<int>(audioData.f0.size()); ++i) {
+        if (audioData.f0[i] > 0.0f) {
+          audioData.f0[i] *= ratio;
+        }
+      }
+
+      lastAppliedOffset = newOffset;
+
+      // Set F0 dirty range for synthesis
+      project->setF0DirtyRange(startFrame, endFrame);
+    }
+
     draggedNote->markDirty(); // Mark as dirty for incremental synthesis
 
     if (onPitchEdited)
@@ -601,11 +650,11 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
   if (isDragging && draggedNote) {
     float newOffset = draggedNote->getPitchOffset();
 
-    // Create undo action if offset changed
-    if (undoManager && std::abs(newOffset - originalPitchOffset) > 0.001f) {
-      auto action = std::make_unique<PitchOffsetAction>(
-          draggedNote, originalPitchOffset, newOffset);
-      undoManager->addAction(std::move(action));
+    // Update the note's midiNote to reflect the new pitch
+    if (std::abs(newOffset - originalPitchOffset) > 0.001f) {
+      float deltaSemitones = newOffset - originalPitchOffset;
+      draggedNote->setMidiNote(draggedNote->getMidiNote() + deltaSemitones);
+      draggedNote->setPitchOffset(0.0f);  // Reset offset since F0 was already modified
     }
 
     // Trigger incremental synthesis when pitch edit is finished

@@ -69,6 +69,7 @@ private:
     void onNoteSelected(Note* note);
     void onPitchEdited();
     void onZoomChanged(float pixelsPerSecond);
+    void reinterpolateUV(int startFrame, int endFrame);  // Re-infer UV regions using FCPE
     
     void loadAudioFile(const juce::File& file);
     void analyzeAudio();

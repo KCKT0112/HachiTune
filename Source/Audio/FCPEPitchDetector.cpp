@@ -505,6 +505,109 @@ std::vector<float> FCPEPitchDetector::extractF0(const float* audio, int numSampl
 #endif
 }
 
+std::vector<float> FCPEPitchDetector::extractF0WithProgress(const float* audio, int numSamples,
+                                                            int sampleRate, float threshold,
+                                                            std::function<void(double)> progressCallback)
+{
+#ifdef HAVE_ONNXRUNTIME
+    if (!loaded)
+    {
+        DBG("FCPE model not loaded");
+        return {};
+    }
+
+    try
+    {
+        if (progressCallback) progressCallback(0.1);
+
+        // Step 1: Resample to 16kHz
+        auto audio16k = resampleTo16k(audio, numSamples, sampleRate);
+
+        if (progressCallback) progressCallback(0.3);
+
+        // Step 2: Extract mel spectrogram
+        auto mel = extractMel(audio16k);
+
+        if (mel.empty())
+        {
+            DBG("Empty mel spectrogram");
+            return {};
+        }
+
+        if (progressCallback) progressCallback(0.5);
+
+        // Step 3: Prepare input tensor [1, T, N_MELS]
+        int numFrames = static_cast<int>(mel.size());
+        std::vector<float> inputData(numFrames * N_MELS);
+
+        for (int t = 0; t < numFrames; ++t)
+        {
+            for (int m = 0; m < N_MELS; ++m)
+            {
+                inputData[t * N_MELS + m] = mel[t][m];
+            }
+        }
+
+        std::array<int64_t, 3> inputShape = {1, numFrames, N_MELS};
+
+        Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);
+
+        Ort::Value inputTensor = Ort::Value::CreateTensor<float>(
+            memoryInfo, inputData.data(), inputData.size(),
+            inputShape.data(), inputShape.size());
+
+        if (progressCallback) progressCallback(0.6);
+
+        // Step 4: Run inference
+        auto outputTensors = onnxSession->Run(
+            Ort::RunOptions{nullptr},
+            inputNames.data(), &inputTensor, 1,
+            outputNames.data(), 1);
+
+        if (progressCallback) progressCallback(0.8);
+
+        // Step 5: Get output [1, T, OUT_DIMS]
+        float* outputData = outputTensors[0].GetTensorMutableData<float>();
+        auto outputShape = outputTensors[0].GetTensorTypeAndShapeInfo().GetShape();
+
+        int outFrames = static_cast<int>(outputShape[1]);
+
+        // Convert to 2D vector
+        std::vector<std::vector<float>> latent(outFrames);
+        for (int t = 0; t < outFrames; ++t)
+        {
+            latent[t].resize(OUT_DIMS);
+            for (int d = 0; d < OUT_DIMS; ++d)
+            {
+                latent[t][d] = outputData[t * OUT_DIMS + d];
+            }
+        }
+
+        if (progressCallback) progressCallback(0.9);
+
+        // Step 6: Decode to F0
+        auto result = decodeF0(latent, threshold);
+
+        if (progressCallback) progressCallback(1.0);
+
+        return result;
+    }
+    catch (const Ort::Exception& e)
+    {
+        DBG("ONNX Runtime error during inference: " << e.what());
+        return {};
+    }
+    catch (const std::exception& e)
+    {
+        DBG("Error during F0 extraction: " << e.what());
+        return {};
+    }
+#else
+    DBG("ONNX Runtime not available");
+    return {};
+#endif
+}
+
 int FCPEPitchDetector::getNumFrames(int numSamples, int sampleRate) const
 {
     // Convert to 16kHz sample count

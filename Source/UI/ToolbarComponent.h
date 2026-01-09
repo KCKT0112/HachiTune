@@ -41,6 +41,8 @@ public:
     std::function<void()> onPlay;
     std::function<void()> onPause;
     std::function<void()> onStop;
+    std::function<void()> onGoToStart;
+    std::function<void()> onGoToEnd;
     std::function<void(float)> onZoomChanged;
     std::function<void(EditMode)> onEditModeChanged;
 
@@ -54,6 +56,8 @@ private:
 
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
+    juce::TextButton goToStartButton { "|<" };
+    juce::TextButton goToEndButton { ">|" };
 
     // Plugin mode buttons
     juce::TextButton reanalyzeButton { "Re-analyze" };

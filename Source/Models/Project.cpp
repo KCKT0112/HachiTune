@@ -387,7 +387,9 @@ std::vector<float> Project::getAdjustedF0ForRange(int startFrame, int endFrame) 
         {
             int noteStart = note.getStartFrame();
             int noteEnd = note.getEndFrame();
-            
+
+            DBG("Note pitch offset: " << note.getPitchOffset() << " frames: " << noteStart << "-" << noteEnd);
+
             // Calculate overlap with our range
             int overlapStart = std::max(noteStart, startFrame) - startFrame;
             int overlapEnd = std::min(noteEnd, endFrame) - startFrame;

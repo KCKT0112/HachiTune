@@ -426,16 +426,6 @@ void Vocoder::setExecutionDevice(const juce::String& device)
     }
 }
 
-void Vocoder::setNumThreads(int threads)
-{
-    if (inferenceThreads != threads)
-    {
-        inferenceThreads = threads;
-        log("Thread count set to: " + std::to_string(threads) + 
-            (threads == 0 ? " (auto)" : ""));
-    }
-}
-
 bool Vocoder::reloadModel()
 {
     if (!modelFile.existsAsFile())
@@ -464,13 +454,7 @@ Ort::SessionOptions Vocoder::createSessionOptions()
 {
     Ort::SessionOptions sessionOptions;
 
-    // Set thread count (0 = let onnxruntime decide)
-    if (inferenceThreads > 0)
-    {
-        sessionOptions.SetIntraOpNumThreads(inferenceThreads);
-        sessionOptions.SetInterOpNumThreads(inferenceThreads);
-    }
-    // When inferenceThreads == 0, don't set - let onnxruntime use its default
+    // Let ONNX Runtime handle threading automatically
 
     // Enable all optimizations
     sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
@@ -481,8 +465,7 @@ Ort::SessionOptions Vocoder::createSessionOptions()
     // Enable CPU memory arena
     sessionOptions.EnableCpuMemArena();
 
-    log("Creating session with device: " + executionDevice.toStdString() +
-        ", threads: " + (inferenceThreads > 0 ? std::to_string(inferenceThreads) : "auto"));
+    log("Creating session with device: " + executionDevice.toStdString());
 
     // Add execution provider based on device selection
 #ifdef USE_CUDA

@@ -26,7 +26,6 @@ public:
 
     // Get current settings
     juce::String getSelectedDevice() const { return currentDevice; }
-    int getNumThreads() const { return numThreads; }
     int getGPUDeviceId() const { return gpuDeviceId; }
 
     // Plugin mode (disables audio device settings)
@@ -63,9 +62,6 @@ private:
     StyledComboBox deviceComboBox;
     juce::Label gpuDeviceLabel;
     StyledComboBox gpuDeviceComboBox;
-    juce::Label threadsLabel;
-    StyledSlider threadsSlider;
-    juce::Label threadsValueLabel;
 
     juce::Label infoLabel;
 
@@ -83,7 +79,6 @@ private:
     StyledComboBox outputChannelsComboBox;
 
     juce::String currentDevice = "CPU";
-    int numThreads = 0;  // 0 = auto (use all cores)
     int gpuDeviceId = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsComponent)

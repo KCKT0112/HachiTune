@@ -28,9 +28,10 @@ public:
     void setSelectedNote(Note* note);
     void updateFromNote();
     void updateGlobalSliders();
-    
+
     // Loading status with progress bar
     void setLoadingStatus(const juce::String& status);
+    void setLoadingProgress(double progress);  // 0.0 to 1.0, or -1 for indeterminate
     void clearLoadingStatus();
     
     std::function<void()> onParameterChanged;

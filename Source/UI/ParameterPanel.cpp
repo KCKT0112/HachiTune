@@ -322,6 +322,12 @@ void ParameterPanel::setLoadingStatus(const juce::String& status)
     repaint();
 }
 
+void ParameterPanel::setLoadingProgress(double progress)
+{
+    progressValue = progress;
+    repaint();
+}
+
 void ParameterPanel::clearLoadingStatus()
 {
     loadingStatusLabel.setVisible(false);

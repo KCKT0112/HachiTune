@@ -75,6 +75,7 @@ public:
     std::function<void(double)> onSeek;
     std::function<void(float)> onZoomChanged;
     std::function<void(double)> onScrollChanged;
+    std::function<void(int, int)> onReinterpolateUV;  // Called to re-infer UV regions (startFrame, endFrame)
     
 private:
     void drawBackgroundWaveform(juce::Graphics& g, const juce::Rectangle<int>& visibleArea);
@@ -120,6 +121,7 @@ private:
     Note* draggedNote = nullptr;
     float dragStartY = 0.0f;
     float originalPitchOffset = 0.0f;
+    float lastAppliedOffset = 0.0f;  // Track incremental F0 changes during drag
     
     // Pitch drawing state
     bool isDrawing = false;

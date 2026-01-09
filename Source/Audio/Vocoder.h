@@ -75,11 +75,9 @@ public:
     
     // Device settings
     void setExecutionDevice(const juce::String& device);
-    void setNumThreads(int threads);
     juce::String getExecutionDevice() const { return executionDevice; }
-    int getNumThreads() const { return inferenceThreads; }
-    
-    // Reload model with new settings (call after changing device/threads)
+
+    // Reload model with new settings (call after changing device)
     bool reloadModel();
     
 private:
@@ -90,8 +88,7 @@ private:
     bool pitchControllable = true;
     
     juce::String executionDevice = "CPU";
-    int inferenceThreads = 0;  // 0 = auto
-    
+
     juce::File modelFile;
     std::unique_ptr<std::ofstream> logFile;
     

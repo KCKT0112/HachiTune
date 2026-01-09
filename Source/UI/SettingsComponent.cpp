@@ -1,7 +1,6 @@
 #include "SettingsComponent.h"
 #include "../Utils/Constants.h"
 #include "../Utils/Localization.h"
-#include <thread>
 
 #ifdef HAVE_ONNXRUNTIME
 #include <onnxruntime_cxx_api.h>
@@ -55,36 +54,6 @@ SettingsComponent::SettingsComponent(juce::AudioDeviceManager* audioDeviceManage
     addAndMakeVisible(gpuDeviceComboBox);
     gpuDeviceLabel.setVisible(false);
     gpuDeviceComboBox.setVisible(false);
-
-    // Thread count
-    threadsLabel.setText(TR("settings.threads"), juce::dontSendNotification);
-    threadsLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    addAndMakeVisible(threadsLabel);
-
-    threadsSlider.setRange(0, 32, 1);
-    threadsSlider.setValue(0);
-    threadsSlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    threadsSlider.onValueChange = [this]()
-    {
-        numThreads = static_cast<int>(threadsSlider.getValue());
-        if (numThreads == 0)
-        {
-            int autoThreads = std::thread::hardware_concurrency();
-            threadsValueLabel.setText(TR("settings.auto") + " (" + juce::String(autoThreads) + " " + TR("settings.cores") + ")",
-                                      juce::dontSendNotification);
-        }
-        else
-        {
-            threadsValueLabel.setText(juce::String(numThreads), juce::dontSendNotification);
-        }
-        saveSettings();
-        if (onSettingsChanged)
-            onSettingsChanged();
-    };
-    addAndMakeVisible(threadsSlider);
-
-    threadsValueLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    addAndMakeVisible(threadsValueLabel);
 
     // Info label
     infoLabel.setColour(juce::Label::textColourId, juce::Colour(0xFF888888));
@@ -143,24 +112,11 @@ SettingsComponent::SettingsComponent(juce::AudioDeviceManager* audioDeviceManage
     // Load saved settings
     loadSettings();
 
-    // Update UI
-    threadsSlider.setValue(numThreads, juce::dontSendNotification);
-    if (numThreads == 0)
-    {
-        int autoThreads = std::thread::hardware_concurrency();
-        threadsValueLabel.setText(TR("settings.auto") + " (" + juce::String(autoThreads) + " " + TR("settings.cores") + ")",
-                                  juce::dontSendNotification);
-    }
-    else
-    {
-        threadsValueLabel.setText(juce::String(numThreads), juce::dontSendNotification);
-    }
-
     // Set size based on mode
     if (pluginMode)
-        setSize(400, 280);
+        setSize(400, 220);
     else
-        setSize(400, 580);
+        setSize(400, 520);
 }
 
 SettingsComponent::~SettingsComponent()
@@ -200,12 +156,7 @@ void SettingsComponent::resized()
         bounds.removeFromTop(10);
     }
 
-    // Threads row
-    auto threadsRow = bounds.removeFromTop(30);
-    threadsLabel.setBounds(threadsRow.removeFromLeft(120));
-    threadsValueLabel.setBounds(threadsRow.removeFromRight(100));
-    threadsSlider.setBounds(threadsRow.reduced(0, 2));
-    bounds.removeFromTop(15);
+    bounds.removeFromTop(5);
 
     // Info label
     infoLabel.setBounds(bounds.removeFromTop(60));
@@ -428,7 +379,6 @@ void SettingsComponent::loadSettings()
         if (xml != nullptr)
         {
             currentDevice = xml->getStringAttribute("device", "CPU");
-            numThreads = xml->getIntAttribute("threads", 0);
             gpuDeviceId = xml->getIntAttribute("gpuDeviceId", 0);
 
             // Load language
@@ -452,7 +402,7 @@ void SettingsComponent::loadSettings()
                 }
             }
 
-            DBG("Loaded settings: device=" + currentDevice + ", threads=" + juce::String(numThreads));
+            DBG("Loaded settings: device=" + currentDevice);
         }
     }
     else
@@ -493,7 +443,6 @@ void SettingsComponent::saveSettings()
 
     juce::XmlElement xml("PitchEditorSettings");
     xml.setAttribute("device", currentDevice);
-    xml.setAttribute("threads", numThreads);
     xml.setAttribute("gpuDeviceId", gpuDeviceId);
 
     // Save language code
@@ -647,9 +596,9 @@ SettingsDialog::SettingsDialog(juce::AudioDeviceManager* audioDeviceManager)
     setResizable(false, false);
 
     if (audioDeviceManager != nullptr)
-        centreWithSize(400, 580);
+        centreWithSize(400, 520);
     else
-        centreWithSize(400, 280);
+        centreWithSize(400, 220);
 }
 
 void SettingsDialog::closeButtonPressed()

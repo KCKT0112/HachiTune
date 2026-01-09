@@ -87,6 +87,11 @@ MainComponent::MainComponent(bool enableAudioDevice)
     toolbar.onPlay = [this]() { play(); };
     toolbar.onPause = [this]() { pause(); };
     toolbar.onStop = [this]() { stop(); };
+    toolbar.onGoToStart = [this]() { seek(0.0); };
+    toolbar.onGoToEnd = [this]() {
+        if (project)
+            seek(project->getAudioData().getDuration());
+    };
     toolbar.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
     toolbar.onEditModeChanged = [this](EditMode mode) { setEditMode(mode); };
 
@@ -105,6 +110,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
     pianoRoll.onPitchEdited = [this]() { onPitchEdited(); };
     pianoRoll.onPitchEditFinished = [this]() { resynthesizeIncremental(); };
     pianoRoll.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
+    pianoRoll.onReinterpolateUV = [this](int startFrame, int endFrame) { reinterpolateUV(startFrame, endFrame); };
 
     // Setup parameter panel callbacks
     parameterPanel.onParameterChanged = [this]() { onPitchEdited(); };
@@ -1065,6 +1071,105 @@ void MainComponent::onPitchEdited()
     parameterPanel.updateFromNote();
 }
 
+void MainComponent::reinterpolateUV(int startFrame, int endFrame)
+{
+    if (!project || !fcpePitchDetector || !fcpePitchDetector->isLoaded())
+        return;
+
+    auto& audioData = project->getAudioData();
+    if (audioData.waveform.getNumSamples() == 0 || audioData.f0.empty())
+        return;
+
+    // Show progress
+    parameterPanel.setLoadingStatus("Analyzing UV...");
+
+    // Convert frame range to sample range
+    int startSample = startFrame * HOP_SIZE;
+    int endSample = endFrame * HOP_SIZE;
+
+    // Add some padding for better context
+    const int paddingSamples = HOP_SIZE * 5;
+    startSample = std::max(0, startSample - paddingSamples);
+    endSample = std::min(audioData.waveform.getNumSamples(), endSample + paddingSamples);
+
+    int numSamples = endSample - startSample;
+    if (numSamples <= 0)
+    {
+        parameterPanel.clearLoadingStatus();
+        return;
+    }
+
+    // Extract audio segment
+    const float* samples = audioData.waveform.getReadPointer(0) + startSample;
+
+    // Run FCPE on this segment with progress
+    std::vector<float> fcpeF0 = fcpePitchDetector->extractF0WithProgress(
+        samples, numSamples, SAMPLE_RATE, 0.05f,
+        [this](double progress) {
+            juce::MessageManager::callAsync([this, progress]() {
+                parameterPanel.setLoadingProgress(progress);
+            });
+        });
+
+    if (fcpeF0.empty())
+    {
+        parameterPanel.clearLoadingStatus();
+        return;
+    }
+
+    // Calculate frame range in vocoder frame rate
+    int paddingFrames = paddingSamples / HOP_SIZE;
+    int actualStartFrame = startFrame - paddingFrames;
+    if (actualStartFrame < 0) actualStartFrame = 0;
+
+    int targetFrames = endFrame - actualStartFrame + paddingFrames;
+
+    // Resample FCPE F0 to vocoder frame rate
+    double ratio = static_cast<double>(fcpeF0.size()) / targetFrames;
+
+    for (int i = 0; i < targetFrames; ++i)
+    {
+        int dstFrame = actualStartFrame + i;
+        if (dstFrame < 0 || dstFrame >= static_cast<int>(audioData.f0.size()))
+            continue;
+
+        // Only update UV (unvoiced) frames - keep original voiced frames
+        if (audioData.f0[dstFrame] > 0.0f)
+            continue;
+
+        double srcPos = i * ratio;
+        int srcIdx = static_cast<int>(srcPos);
+        double frac = srcPos - srcIdx;
+
+        float newF0 = 0.0f;
+        if (srcIdx + 1 < static_cast<int>(fcpeF0.size()))
+        {
+            float f0_a = fcpeF0[srcIdx];
+            float f0_b = fcpeF0[srcIdx + 1];
+
+            if (f0_a > 0 && f0_b > 0)
+                newF0 = static_cast<float>(f0_a * (1.0 - frac) + f0_b * frac);
+            else if (f0_a > 0)
+                newF0 = f0_a;
+            else if (f0_b > 0)
+                newF0 = f0_b;
+        }
+        else if (srcIdx < static_cast<int>(fcpeF0.size()))
+        {
+            newF0 = fcpeF0[srcIdx];
+        }
+
+        // Update F0 if we got a valid value
+        if (newF0 > 0.0f)
+        {
+            audioData.f0[dstFrame] = newF0;
+        }
+    }
+
+    parameterPanel.clearLoadingStatus();
+    DBG("Reinterpolated UV frames " << startFrame << " to " << endFrame);
+}
+
 void MainComponent::onZoomChanged(float pixelsPerSecond)
 {
     if (isSyncingZoom) return;
@@ -1138,16 +1243,17 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
     auto finalizeNote = [&](int start, int end) {
         if (end - start < 5) return;  // Minimum 5 frames
 
-        // Calculate average F0 for this segment
+        // Calculate average F0 for this segment (only voiced frames)
         float f0Sum = 0.0f;
         int f0Count = 0;
         for (int j = start; j < end; ++j) {
-            if (audioData.f0[j] > 0) {
+            if (j < static_cast<int>(audioData.voicedMask.size()) &&
+                audioData.voicedMask[j] && audioData.f0[j] > 0) {
                 f0Sum += audioData.f0[j];
                 f0Count++;
             }
         }
-        if (f0Count == 0) return;
+        if (f0Count == 0) return;  // No voiced frames at all
 
         float avgF0 = f0Sum / f0Count;
         float midi = freqToMidi(avgF0);
@@ -1159,64 +1265,25 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
         notes.push_back(note);
     };
 
-    // Segment F0 into notes, splitting on pitch changes > 0.5 semitones
-    constexpr float pitchSplitThreshold = 0.5f;  // semitones
-    constexpr int minFramesForSplit = 3;  // require consecutive frames to confirm pitch change
-
+    // Segment based on model's voiced mask only - no heuristic pitch splitting
     bool inNote = false;
     int noteStart = 0;
-    int currentMidiNote = 0;  // quantized to nearest semitone
-    int pitchChangeCount = 0;
-    int pitchChangeStart = 0;
 
     for (size_t i = 0; i < audioData.f0.size(); ++i)
     {
-        bool voiced = audioData.voicedMask[i];
+        bool voiced = i < audioData.voicedMask.size() && audioData.voicedMask[i];
 
         if (voiced && !inNote)
         {
             // Start new note
             inNote = true;
             noteStart = static_cast<int>(i);
-            currentMidiNote = static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
-            pitchChangeCount = 0;
-        }
-        else if (voiced && inNote)
-        {
-            // Check for pitch change
-            float currentMidi = freqToMidi(audioData.f0[i]);
-            int quantizedMidi = static_cast<int>(std::round(currentMidi));
-
-            if (quantizedMidi != currentMidiNote &&
-                std::abs(currentMidi - currentMidiNote) > pitchSplitThreshold)
-            {
-                if (pitchChangeCount == 0)
-                    pitchChangeStart = static_cast<int>(i);
-                pitchChangeCount++;
-
-                // Confirm pitch change after consecutive frames
-                if (pitchChangeCount >= minFramesForSplit)
-                {
-                    // Finalize current note up to pitch change point
-                    finalizeNote(noteStart, pitchChangeStart);
-
-                    // Start new note from pitch change point
-                    noteStart = pitchChangeStart;
-                    currentMidiNote = quantizedMidi;
-                    pitchChangeCount = 0;
-                }
-            }
-            else
-            {
-                pitchChangeCount = 0;  // Reset if pitch returns
-            }
         }
         else if (!voiced && inNote)
         {
-            // End note on unvoiced
+            // End note at unvoiced boundary
             finalizeNote(noteStart, static_cast<int>(i));
             inNote = false;
-            pitchChangeCount = 0;
         }
     }
 
@@ -1255,25 +1322,22 @@ void MainComponent::applySettings()
                             .getChildFile("settings.xml");
     
     juce::String device = "CPU";
-    int threads = 0;
-    
+
     if (settingsFile.existsAsFile())
     {
         auto xml = juce::XmlDocument::parse(settingsFile);
         if (xml != nullptr)
         {
             device = xml->getStringAttribute("device", "CPU");
-            threads = xml->getIntAttribute("threads", 0);
         }
     }
-    
-    DBG("Applying settings: device=" + device + ", threads=" + juce::String(threads));
-    
+
+    DBG("Applying settings: device=" + device);
+
     // Apply to vocoder
     if (vocoder)
     {
         vocoder->setExecutionDevice(device);
-        vocoder->setNumThreads(threads);
         
         // Reload model if already loaded to apply new execution provider
         if (vocoder->isLoaded())

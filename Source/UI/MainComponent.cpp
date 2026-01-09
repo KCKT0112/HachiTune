@@ -83,6 +83,11 @@ MainComponent::MainComponent(bool enableAudioDevice)
     toolbar.onPlay = [this]() { play(); };
     toolbar.onPause = [this]() { pause(); };
     toolbar.onStop = [this]() { stop(); };
+    toolbar.onGoToStart = [this]() { seek(0.0); };
+    toolbar.onGoToEnd = [this]() {
+        if (project)
+            seek(project->getAudioData().getDuration());
+    };
     toolbar.onZoomChanged = [this](float pps) { onZoomChanged(pps); };
     toolbar.onEditModeChanged = [this](EditMode mode) { setEditMode(mode); };
 
@@ -1119,16 +1124,17 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
     auto finalizeNote = [&](int start, int end) {
         if (end - start < 5) return;  // Minimum 5 frames
 
-        // Calculate average F0 for this segment
+        // Calculate average F0 for this segment (only voiced frames)
         float f0Sum = 0.0f;
         int f0Count = 0;
         for (int j = start; j < end; ++j) {
-            if (audioData.f0[j] > 0) {
+            if (j < static_cast<int>(audioData.voicedMask.size()) &&
+                audioData.voicedMask[j] && audioData.f0[j] > 0) {
                 f0Sum += audioData.f0[j];
                 f0Count++;
             }
         }
-        if (f0Count == 0) return;
+        if (f0Count == 0) return;  // No voiced frames at all
 
         float avgF0 = f0Sum / f0Count;
         float midi = freqToMidi(avgF0);
@@ -1143,16 +1149,18 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
     // Segment F0 into notes, splitting on pitch changes > 0.5 semitones
     constexpr float pitchSplitThreshold = 0.5f;  // semitones
     constexpr int minFramesForSplit = 3;  // require consecutive frames to confirm pitch change
+    constexpr int maxUnvoicedGap = INT_MAX;  // never break on unvoiced, only on pitch change
 
     bool inNote = false;
     int noteStart = 0;
     int currentMidiNote = 0;  // quantized to nearest semitone
     int pitchChangeCount = 0;
     int pitchChangeStart = 0;
+    int unvoicedCount = 0;
 
     for (size_t i = 0; i < audioData.f0.size(); ++i)
     {
-        bool voiced = audioData.voicedMask[i];
+        bool voiced = i < audioData.voicedMask.size() && audioData.voicedMask[i];
 
         if (voiced && !inNote)
         {
@@ -1161,9 +1169,12 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
             noteStart = static_cast<int>(i);
             currentMidiNote = static_cast<int>(std::round(freqToMidi(audioData.f0[i])));
             pitchChangeCount = 0;
+            unvoicedCount = 0;
         }
         else if (voiced && inNote)
         {
+            unvoicedCount = 0;  // Reset unvoiced counter
+
             // Check for pitch change
             float currentMidi = freqToMidi(audioData.f0[i]);
             int quantizedMidi = static_cast<int>(std::round(currentMidi));
@@ -1194,10 +1205,16 @@ void MainComponent::segmentIntoNotes(Project& targetProject)
         }
         else if (!voiced && inNote)
         {
-            // End note on unvoiced
-            finalizeNote(noteStart, static_cast<int>(i));
-            inNote = false;
-            pitchChangeCount = 0;
+            // Allow short unvoiced gaps within notes
+            unvoicedCount++;
+            if (unvoicedCount > maxUnvoicedGap)
+            {
+                // End note after long unvoiced gap
+                finalizeNote(noteStart, static_cast<int>(i) - unvoicedCount);
+                inNote = false;
+                pitchChangeCount = 0;
+                unvoicedCount = 0;
+            }
         }
     }
 

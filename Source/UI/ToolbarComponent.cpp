@@ -6,8 +6,10 @@
 ToolbarComponent::ToolbarComponent()
 {
     // Configure buttons
+    addAndMakeVisible(goToStartButton);
     addAndMakeVisible(playButton);
     addAndMakeVisible(stopButton);
+    addAndMakeVisible(goToEndButton);
     addAndMakeVisible(selectModeButton);
     addAndMakeVisible(drawModeButton);
     addAndMakeVisible(followButton);
@@ -16,8 +18,10 @@ ToolbarComponent::ToolbarComponent()
     addChildComponent(reanalyzeButton);
     addChildComponent(renderButton);
 
+    goToStartButton.addListener(this);
     playButton.addListener(this);
     stopButton.addListener(this);
+    goToEndButton.addListener(this);
     selectModeButton.addListener(this);
     drawModeButton.addListener(this);
     followButton.addListener(this);
@@ -38,7 +42,7 @@ ToolbarComponent::ToolbarComponent()
     auto buttonColor = juce::Colour(0xFF3D3D47);
     auto textColor = juce::Colours::white;
 
-    for (auto* btn : { &playButton, &stopButton, &selectModeButton, &drawModeButton, &reanalyzeButton, &renderButton })
+    for (auto* btn : { &goToStartButton, &playButton, &stopButton, &goToEndButton, &selectModeButton, &drawModeButton, &reanalyzeButton, &renderButton })
     {
         btn->setColour(juce::TextButton::buttonColourId, buttonColor);
         btn->setColour(juce::TextButton::textColourOffId, textColor);
@@ -93,7 +97,7 @@ ToolbarComponent::~ToolbarComponent()
 void ToolbarComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(0xFF1A1A24));
-    
+
     // Bottom border
     g.setColour(juce::Colour(0xFF3D3D47));
     g.drawHorizontalLine(getHeight() - 1, 0, static_cast<float>(getWidth()));
@@ -112,9 +116,13 @@ void ToolbarComponent::resized()
     }
     else
     {
+        goToStartButton.setBounds(bounds.removeFromLeft(32));
+        bounds.removeFromLeft(4);
         playButton.setBounds(bounds.removeFromLeft(70));
         bounds.removeFromLeft(4);
         stopButton.setBounds(bounds.removeFromLeft(70));
+        bounds.removeFromLeft(4);
+        goToEndButton.setBounds(bounds.removeFromLeft(32));
     }
     bounds.removeFromLeft(20);
 
@@ -150,7 +158,11 @@ void ToolbarComponent::resized()
 
 void ToolbarComponent::buttonClicked(juce::Button* button)
 {
-    if (button == &playButton)
+    if (button == &goToStartButton && onGoToStart)
+        onGoToStart();
+    else if (button == &goToEndButton && onGoToEnd)
+        onGoToEnd();
+    else if (button == &playButton)
     {
         if (isPlaying)
         {
@@ -214,15 +226,15 @@ void ToolbarComponent::setTotalTime(double time)
 void ToolbarComponent::setEditMode(EditMode mode)
 {
     currentEditModeInt = (mode == EditMode::Draw) ? 1 : 0;
-    
+
     auto buttonColor = juce::Colour(0xFF3D3D47);
     auto activeColor = juce::Colour(COLOR_PRIMARY);
-    
-    selectModeButton.setColour(juce::TextButton::buttonColourId, 
+
+    selectModeButton.setColour(juce::TextButton::buttonColourId,
         mode == EditMode::Select ? activeColor : buttonColor);
-    drawModeButton.setColour(juce::TextButton::buttonColourId, 
+    drawModeButton.setColour(juce::TextButton::buttonColourId,
         mode == EditMode::Draw ? activeColor : buttonColor);
-    
+
     repaint();
 }
 
@@ -304,8 +316,10 @@ void ToolbarComponent::setPluginMode(bool isPlugin)
 {
     pluginMode = isPlugin;
 
+    goToStartButton.setVisible(!isPlugin);
     playButton.setVisible(!isPlugin);
     stopButton.setVisible(!isPlugin);
+    goToEndButton.setVisible(!isPlugin);
     reanalyzeButton.setVisible(isPlugin);
     renderButton.setVisible(isPlugin);
 
