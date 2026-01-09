@@ -312,7 +312,7 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
       int samplesPerPixel = std::max(1, static_cast<int>(numNoteSamples / w));
 
       float centerY = y + h * 0.5f;
-      float waveHeight = h * 2.8f;
+      float waveHeight = h * 3.0f;
 
       // Build waveform data
       std::vector<float> waveValues;
@@ -563,7 +563,8 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
     draggedNote = note;
     dragStartY = static_cast<float>(e.y);
     originalPitchOffset = note->getPitchOffset();
-    lastAppliedOffset = originalPitchOffset;  // Initialize for incremental F0 updates
+    lastAppliedOffset =
+        originalPitchOffset; // Initialize for incremental F0 updates
 
     repaint();
   } else {
@@ -616,7 +617,8 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
       // Calculate the pitch ratio for this drag
       float ratio = std::pow(2.0f, (newOffset - lastAppliedOffset) / 12.0f);
 
-      for (int i = startFrame; i < endFrame && i < static_cast<int>(audioData.f0.size()); ++i) {
+      for (int i = startFrame;
+           i < endFrame && i < static_cast<int>(audioData.f0.size()); ++i) {
         if (audioData.f0[i] > 0.0f) {
           audioData.f0[i] *= ratio;
         }
@@ -654,7 +656,8 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
     if (std::abs(newOffset - originalPitchOffset) > 0.001f) {
       float deltaSemitones = newOffset - originalPitchOffset;
       draggedNote->setMidiNote(draggedNote->getMidiNote() + deltaSemitones);
-      draggedNote->setPitchOffset(0.0f);  // Reset offset since F0 was already modified
+      draggedNote->setPitchOffset(
+          0.0f); // Reset offset since F0 was already modified
     }
 
     // Trigger incremental synthesis when pitch edit is finished
