@@ -421,8 +421,8 @@ void PianoRollComponent::drawCursor(juce::Graphics &g) {
   float x = timeToX(cursorTime);
   float height = (MAX_MIDI_NOTE - MIN_MIDI_NOTE) * pixelsPerSemitone;
 
-  g.setColour(juce::Colours::red);
-  g.drawVerticalLine(static_cast<int>(x), 0, height);
+  g.setColour(juce::Colour(0x00, 0xD4, 0xFF));  // Bright cyan
+  g.fillRect(x - 1.0f, 0.0f, 2.0f, height);
 }
 
 void PianoRollComponent::drawPianoKeys(juce::Graphics &g) {
