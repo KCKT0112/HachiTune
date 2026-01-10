@@ -82,7 +82,7 @@ private:
     bool showingProgress = false;
 
     // Sidebar toggle
-    juce::TextButton sidebarToggleButton { "≡" };
+    juce::TextButton sidebarToggleButton { "Menu" };
     bool sidebarVisible = false;
     
     double currentTime = 0.0;

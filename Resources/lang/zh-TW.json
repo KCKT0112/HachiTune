@@ -55,6 +55,7 @@
 
   "progress.loading": "載入中...",
   "progress.analyzing": "分析中...",
+  "progress.synthesizing": "合成中...",
   "progress.rendering": "渲染中...",
   "progress.ready": "就緒"
 }

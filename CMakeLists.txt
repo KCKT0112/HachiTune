@@ -7,7 +7,30 @@ include(FetchContent)
 option(USE_GPU "Enable GPU acceleration for ONNX Runtime (not supported on macOS)" OFF)
 option(USE_CUDA "Enable CUDA execution provider" OFF)
 option(USE_DIRECTML "Enable DirectML execution provider (Windows only)" OFF)
-set(ONNXRUNTIME_VERSION "1.17.1" CACHE STRING "ONNX Runtime version")
+option(USE_BUNDLED_CUDA_RUNTIME "Bundle minimal CUDA runtime DLLs (Windows only)" OFF)
+option(USE_BUNDLED_DIRECTML_RUNTIME "Bundle DirectML runtime DLL (Windows only)" OFF)
+set(CUDA_REDIST_URL "" CACHE STRING "Optional URL to download CUDA runtime redistributable zip")
+set(DIRECTML_REDIST_URL "" CACHE STRING "Optional URL to download DirectML redistributable zip")
+set(ONNXRUNTIME_VERSION "1.17.3" CACHE STRING "ONNX Runtime version")
+
+# Check that CUDA and DirectML are not both enabled
+if(USE_CUDA AND USE_DIRECTML)
+    message(FATAL_ERROR "ERROR: USE_CUDA and USE_DIRECTML cannot be enabled at the same time. "
+                        "DirectML requires a separate version of ONNX Runtime. "
+                        "Please enable only one of them.")
+endif()
+
+# If CUDA is requested, force GPU pipeline on
+if(USE_CUDA)
+    set(USE_GPU ON)
+    message(STATUS "USE_CUDA=ON -> enabling USE_GPU automatically")
+endif()
+
+# If DirectML is requested, force GPU pipeline on
+if(USE_DIRECTML)
+    set(USE_GPU ON)
+    message(STATUS "USE_DIRECTML=ON -> enabling USE_GPU automatically")
+endif()
 
 # Check if ONNX Runtime already exists in build directory
 set(ONNXRUNTIME_CACHE_DIR "${CMAKE_BINARY_DIR}/_deps/onnxruntime-src")
@@ -17,10 +40,18 @@ if(EXISTS "${ONNXRUNTIME_CACHE_DIR}/include/onnxruntime_cxx_api.h")
 else()
     # Detect platform and set download URL
     if(WIN32)
-        if(USE_GPU)
+        if(USE_CUDA)
+            # CUDA requires CUDA-specific ONNX Runtime build
+            set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-gpu-cuda12-${ONNXRUNTIME_VERSION}.zip")
+            message(STATUS "Downloading ONNX Runtime GPU CUDA12 package (Windows)")
+        elseif(USE_DIRECTML)
+            # DirectML uses the generic GPU package
             set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-gpu-${ONNXRUNTIME_VERSION}.zip")
+            message(STATUS "Downloading ONNX Runtime GPU package (Windows) for DirectML")
         else()
+            # CPU-only package
             set(ONNXRUNTIME_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-win-x64-${ONNXRUNTIME_VERSION}.zip")
+            message(STATUS "Downloading ONNX Runtime CPU package (Windows)")
         endif()
     elseif(APPLE)
         if(USE_GPU)
@@ -271,6 +302,156 @@ if(ONNXRUNTIME_FOUND)
         else()
             message(WARNING "No ONNX Runtime DLLs found to copy")
         endif()
+        
+        # Copy CUDA runtime DLLs if CUDA is enabled
+        if(USE_CUDA)
+            # Optional bundled CUDA runtime (redistributable) to avoid system dependency
+            # If USE_BUNDLED_CUDA_RUNTIME is ON, we first look for a local redistributable dir,
+            # otherwise try to download from CUDA_REDIST_URL (if provided).
+            if(USE_BUNDLED_CUDA_RUNTIME)
+                set(CUDA_REDIST_DIR "${CMAKE_SOURCE_DIR}/vendor/cuda/bin")
+                if(NOT EXISTS "${CUDA_REDIST_DIR}")
+                    set(CUDA_REDIST_DIR "${CMAKE_BINARY_DIR}/cuda_redist/bin")
+                endif()
+
+                # Download redistributable if URL is provided and dir not present
+                if(NOT EXISTS "${CUDA_REDIST_DIR}" AND CUDA_REDIST_URL)
+                    message(STATUS "Downloading CUDA runtime redistributable from ${CUDA_REDIST_URL}")
+                    file(DOWNLOAD "${CUDA_REDIST_URL}"
+                        "${CMAKE_BINARY_DIR}/cuda_redist.zip"
+                        SHOW_PROGRESS)
+                    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cuda_redist")
+                    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/cuda_redist.zip"
+                                    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/cuda_redist")
+                    # Try common layout: cuda_redist/bin
+                    if(EXISTS "${CMAKE_BINARY_DIR}/cuda_redist/bin")
+                        set(CUDA_REDIST_DIR "${CMAKE_BINARY_DIR}/cuda_redist/bin")
+                    endif()
+                endif()
+            endif()
+
+            # Common CUDA installation paths
+            set(CUDA_PATHS
+                "$ENV{CUDA_PATH}/bin"
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.0/bin"
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.1/bin"
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2/bin"
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8/bin"
+                "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.9/bin"
+            )
+            
+            # CUDA runtime DLLs needed by ONNX Runtime
+            set(CUDA_DLLS
+                "cublasLt64_12.dll"
+                "cublas64_12.dll"
+                "cudnn64_8.dll"
+                "cufft64_12.dll"
+                "curand64_12.dll"
+                "cusolver64_12.dll"
+                "cusparse64_12.dll"
+                "cudart64_12.dll"
+            )
+            
+            # Also try version 11 DLLs
+            list(APPEND CUDA_DLLS
+                "cublasLt64_11.dll"
+                "cublas64_11.dll"
+                "cufft64_11.dll"
+                "curand64_11.dll"
+                "cusolver64_11.dll"
+                "cusparse64_11.dll"
+                "cudart64_11.dll"
+            )
+            
+            # Find CUDA bin directory (prefer bundled redistributable if present)
+            set(CUDA_BIN_DIR "")
+            if(USE_BUNDLED_CUDA_RUNTIME AND EXISTS "${CUDA_REDIST_DIR}")
+                set(CUDA_BIN_DIR "${CUDA_REDIST_DIR}")
+                message(STATUS "Using bundled CUDA runtime from: ${CUDA_BIN_DIR}")
+            endif()
+
+            foreach(CUDA_PATH ${CUDA_PATHS})
+                if(NOT CUDA_BIN_DIR AND EXISTS "${CUDA_PATH}")
+                    set(CUDA_BIN_DIR "${CUDA_PATH}")
+                    message(STATUS "Found CUDA bin directory: ${CUDA_BIN_DIR}")
+                    break()
+                endif()
+            endforeach()
+            
+            if(CUDA_BIN_DIR)
+                foreach(CUDA_DLL ${CUDA_DLLS})
+                    set(CUDA_DLL_PATH "${CUDA_BIN_DIR}/${CUDA_DLL}")
+                    if(EXISTS "${CUDA_DLL_PATH}")
+                        message(STATUS "Will copy CUDA DLL: ${CUDA_DLL}")
+                        add_custom_command(TARGET PitchEditor POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${CUDA_DLL_PATH}"
+                            "$<TARGET_FILE_DIR:PitchEditor>")
+                        
+                        add_custom_command(TARGET PitchEditorPlugin_VST3 POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${CUDA_DLL_PATH}"
+                            "$<TARGET_FILE_DIR:PitchEditorPlugin_VST3>")
+                    endif()
+                endforeach()
+            else()
+                message(WARNING "CUDA bin directory not found. CUDA runtime DLLs will not be copied.")
+                message(WARNING "Please ensure CUDA Toolkit is installed and CUDA_PATH environment variable is set.")
+                message(WARNING "Or manually copy CUDA DLLs from CUDA installation to the output directory.")
+            endif()
+        endif()
+
+        # Copy DirectML runtime DLL if explicitly requested (Windows only)
+        # Note: DirectML is typically included in Windows 10/11 and will be loaded from the system
+        if(USE_DIRECTML AND USE_BUNDLED_DIRECTML_RUNTIME)
+            set(DML_DLLS "DirectML.dll")
+            set(DML_BIN_DIR "")
+
+            set(DML_REDIST_DIR "${CMAKE_SOURCE_DIR}/vendor/directml/bin")
+            if(NOT EXISTS "${DML_REDIST_DIR}")
+                set(DML_REDIST_DIR "${CMAKE_BINARY_DIR}/directml_redist/bin")
+            endif()
+
+            # Download redistributable if URL provided and dir not present
+            if(NOT EXISTS "${DML_REDIST_DIR}" AND DIRECTML_REDIST_URL)
+                message(STATUS "Downloading DirectML redistributable from ${DIRECTML_REDIST_URL}")
+                file(DOWNLOAD "${DIRECTML_REDIST_URL}"
+                    "${CMAKE_BINARY_DIR}/directml_redist.zip"
+                    SHOW_PROGRESS)
+                file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/directml_redist")
+                execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf "${CMAKE_BINARY_DIR}/directml_redist.zip"
+                                WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/directml_redist")
+                if(EXISTS "${CMAKE_BINARY_DIR}/directml_redist/bin")
+                    set(DML_REDIST_DIR "${CMAKE_BINARY_DIR}/directml_redist/bin")
+                endif()
+            endif()
+
+            if(EXISTS "${DML_REDIST_DIR}")
+                set(DML_BIN_DIR "${DML_REDIST_DIR}")
+                message(STATUS "Using bundled DirectML runtime from: ${DML_BIN_DIR}")
+
+                foreach(DML_DLL ${DML_DLLS})
+                    set(DML_DLL_PATH "${DML_BIN_DIR}/${DML_DLL}")
+                    if(EXISTS "${DML_DLL_PATH}")
+                        message(STATUS "Will copy DirectML DLL: ${DML_DLL_PATH}")
+                        add_custom_command(TARGET PitchEditor POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DML_DLL_PATH}"
+                            "$<TARGET_FILE_DIR:PitchEditor>")
+
+                        add_custom_command(TARGET PitchEditorPlugin_VST3 POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${DML_DLL_PATH}"
+                            "$<TARGET_FILE_DIR:PitchEditorPlugin_VST3>")
+                    endif()
+                endforeach()
+            else()
+                message(WARNING "USE_BUNDLED_DIRECTML_RUNTIME is ON but DirectML redistributable not found.")
+                message(WARNING "Set DIRECTML_REDIST_URL or place DirectML.dll in vendor/directml/bin/")
+            endif()
+        elseif(USE_DIRECTML)
+            message(STATUS "DirectML will be loaded from the system (included in Windows 10/11)")
+        endif()
     elseif(APPLE)
         # macOS: Embed dylib in app bundle and plugin bundles
         get_filename_component(ONNXRUNTIME_LIB_DIR ${ONNXRUNTIME_LIBRARY} DIRECTORY)
@@ -372,27 +553,13 @@ foreach(MODEL ${REQUIRED_MODELS})
 endforeach()
 
 if(MODELS_MISSING)
-    message(STATUS "Downloading models from https://alihz.kilins.com/models.zip ...")
-    file(DOWNLOAD
-        "https://alihz.kilins.com/models.zip"
-        ${MODELS_ZIP}
-        SHOW_PROGRESS
-        STATUS DOWNLOAD_STATUS
-    )
-    list(GET DOWNLOAD_STATUS 0 STATUS_CODE)
-    if(STATUS_CODE EQUAL 0)
-        message(STATUS "Extracting models to ${CMAKE_CURRENT_SOURCE_DIR}/Resources/ ...")
-        execute_process(
-            COMMAND ${CMAKE_COMMAND} -E tar xzf ${MODELS_ZIP}
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Resources"
-        )
-        file(REMOVE ${MODELS_ZIP})
-        message(STATUS "Models downloaded and extracted successfully")
-    else()
-        message(WARNING "Failed to download models: ${DOWNLOAD_STATUS}")
-    endif()
+    message(FATAL_ERROR "Required models not found in ${MODELS_DIR}. "
+                        "Please ensure the models folder exists with the following files:\n"
+                        "  - pc_nsf_hifigan.onnx\n"
+                        "  - fcpe.onnx\n"
+                        "  - some.onnx")
 else()
-    message(STATUS "All required models found, skipping download")
+    message(STATUS "All required models found")
 endif()
 
 # ONNX model path

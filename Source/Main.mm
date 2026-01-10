@@ -62,18 +62,31 @@ public:
             : DocumentWindow(name,
                             juce::Colour(COLOR_BACKGROUND),  // Match content background
 #if JUCE_MAC
-                            DocumentWindow::allButtons)  // Need buttons for traffic lights
+                            DocumentWindow::allButtons,
+                            false)  // Don't add to desktop yet - Need buttons for traffic lights
         {
+            // Ensure window is opaque before setting native title bar
+            setOpaque(true);
             setUsingNativeTitleBar(true);  // Must be true for traffic lights
 #else
-                            0)  // No JUCE buttons on Windows/Linux - we use custom title bar
+                            0,
+                            false)  // Don't add to desktop yet - No JUCE buttons on Windows/Linux - we use custom title bar
         {
+            // Ensure window is opaque
+            setOpaque(true);
             setUsingNativeTitleBar(false);
             setTitleBarHeight(0);
 #endif
-            setContentOwned(new MainComponent(), true);
+            auto* content = new MainComponent();
+            // Ensure content component is opaque
+            content->setOpaque(true);
+            setContentOwned(content, true);
 
             setResizable(true, true);
+            
+            // Now add to desktop after all properties are set
+            addToDesktop();
+            
             centreWithSize(getWidth(), getHeight());
 
             setVisible(true);

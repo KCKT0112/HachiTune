@@ -9,6 +9,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
 {
     DBG("MainComponent: Starting initialization...");
     setSize(1400, 900);
+    setOpaque(true);  // Required for native title bar
     
     DBG("MainComponent: Creating project and engines...");
     // Initialize components
@@ -30,7 +31,13 @@ MainComponent::MainComponent(bool enableAudioDevice)
     
     if (fcpeModelPath.existsAsFile())
     {
-        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath))
+#ifdef USE_DIRECTML
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::DirectML))
+#elif defined(USE_CUDA)
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::CUDA))
+#else
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::CPU))
+#endif
         {
             DBG("FCPE pitch detector loaded successfully");
             useFCPE = true;
@@ -57,16 +64,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
         audioEngine->initializeAudio();
     
     DBG("MainComponent: Adding child components...");
-    // Add child components
-#if JUCE_MAC
-    // Use native macOS menu bar (only in standalone mode)
-    if (!isPluginMode())
-        juce::MenuBarModel::setMacMainMenu(this);
-#else
-    addAndMakeVisible(titleBar);
+    // Add child components - menu bar for all platforms
     menuBar.setModel(this);
+    menuBar.setLookAndFeel(&menuBarLookAndFeel);
     addAndMakeVisible(menuBar);
-#endif
     addAndMakeVisible(toolbar);
     addAndMakeVisible(pianoRoll);
     addAndMakeVisible(parameterPanel);
@@ -121,26 +122,9 @@ MainComponent::MainComponent(bool enableAudioDevice)
     {
         audioEngine->setPositionCallback([this](double position)
         {
-            juce::MessageManager::callAsync([this, position]()
-            {
-                pianoRoll.setCursorTime(position);
-                toolbar.setCurrentTime(position);
-
-                // Follow playback: scroll to keep cursor visible
-                if (isPlaying && toolbar.isFollowPlayback())
-                {
-                    float cursorX = static_cast<float>(position * pianoRoll.getPixelsPerSecond());
-                    float viewWidth = static_cast<float>(pianoRoll.getWidth() - 74);  // minus piano keys and scrollbar
-                    float scrollX = static_cast<float>(pianoRoll.getScrollX());
-
-                    // If cursor is outside visible area, scroll to center it
-                    if (cursorX < scrollX || cursorX > scrollX + viewWidth)
-                    {
-                        double newScrollX = std::max(0.0, static_cast<double>(cursorX - viewWidth * 0.3f));
-                        pianoRoll.setScrollX(newScrollX);
-                    }
-                }
-            });
+            // Throttle cursor updates - store position and let timer handle it
+            pendingCursorTime.store(position);
+            hasPendingCursorUpdate.store(true);
         });
         
         audioEngine->setFinishCallback([this]()
@@ -175,12 +159,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
 MainComponent::~MainComponent()
 {
-#if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(nullptr);
-#endif
-
-    if (enableAudioDeviceFlag)
-        saveConfig();
+    menuBar.setLookAndFeel(nullptr);
     removeKeyListener(this);
     stopTimer();
 
@@ -189,35 +168,28 @@ MainComponent::~MainComponent()
         loaderThread.join();
 
     if (audioEngine)
+    {
+        audioEngine->clearCallbacks();
         audioEngine->shutdownAudio();
+    }
+
+    if (enableAudioDeviceFlag)
+        saveConfig();
 }
 
 void MainComponent::paint(juce::Graphics& g)
 {
     g.fillAll(juce::Colour(COLOR_BACKGROUND));
-
-#if JUCE_MAC
-    // Paint the title bar area with toolbar color to match
-    g.setColour(juce::Colour(0xFF1A1A24));
-    g.fillRect(0, 0, getWidth(), 28);
-#endif
 }
 
 void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-#if JUCE_MAC
-    // Leave space for native traffic lights (title bar area)
-    bounds.removeFromTop(28);
-#else
-    // Custom title bar at top (Windows/Linux only)
-    titleBar.setBounds(bounds.removeFromTop(CustomTitleBar::titleBarHeight));
-    // Menu bar below title bar
+    // Menu bar at top for all platforms
     menuBar.setBounds(bounds.removeFromTop(24));
-#endif
 
-    // Toolbar at top
+    // Toolbar
     toolbar.setBounds(bounds.removeFromTop(40));
 
     // Parameter panel on right
@@ -229,29 +201,12 @@ void MainComponent::resized()
 
 void MainComponent::mouseDown(const juce::MouseEvent& e)
 {
-#if JUCE_MAC
-    // Allow dragging from the title bar area (top 28px)
-    if (e.y < 28)
-    {
-        if (auto* window = getTopLevelComponent())
-            dragger.startDraggingComponent(window, e.getEventRelativeTo(window));
-    }
-#else
     juce::ignoreUnused(e);
-#endif
 }
 
 void MainComponent::mouseDrag(const juce::MouseEvent& e)
 {
-#if JUCE_MAC
-    if (e.y < 28 || e.mouseWasDraggedSinceMouseDown())
-    {
-        if (auto* window = getTopLevelComponent())
-            dragger.dragComponent(window, e.getEventRelativeTo(window), nullptr);
-    }
-#else
     juce::ignoreUnused(e);
-#endif
 }
 
 void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
@@ -261,6 +216,31 @@ void MainComponent::mouseDoubleClick(const juce::MouseEvent& e)
 
 void MainComponent::timerCallback()
 {
+    // Handle throttled cursor updates (30Hz max)
+    if (hasPendingCursorUpdate.load())
+    {
+        double position = pendingCursorTime.load();
+        hasPendingCursorUpdate.store(false);
+
+        pianoRoll.setCursorTime(position);
+        toolbar.setCurrentTime(position);
+
+        // Follow playback: scroll to keep cursor visible
+        if (isPlaying && toolbar.isFollowPlayback())
+        {
+            float cursorX = static_cast<float>(position * pianoRoll.getPixelsPerSecond());
+            float viewWidth = static_cast<float>(pianoRoll.getWidth() - 74);  // minus piano keys and scrollbar
+            float scrollX = static_cast<float>(pianoRoll.getScrollX());
+
+            // If cursor is outside visible area, scroll to center it
+            if (cursorX < scrollX || cursorX > scrollX + viewWidth)
+            {
+                double newScrollX = std::max(0.0, static_cast<double>(cursorX - viewWidth * 0.3f));
+                pianoRoll.setScrollX(newScrollX);
+            }
+        }
+    }
+
     if (isLoadingAudio.load())
     {
         const auto progress = static_cast<float>(loadingProgress.load());
@@ -275,7 +255,6 @@ void MainComponent::timerCallback()
         if (msg.isNotEmpty() && msg != lastLoadingMessage)
         {
             toolbar.showProgress(msg);
-            parameterPanel.setLoadingStatus(msg);
             lastLoadingMessage = msg;
         }
 
@@ -285,7 +264,6 @@ void MainComponent::timerCallback()
     if (lastLoadingMessage.isNotEmpty())
     {
         toolbar.hideProgress();
-        parameterPanel.clearLoadingStatus();
         lastLoadingMessage.clear();
     }
 }
@@ -404,14 +382,12 @@ void MainComponent::saveProject()
 
             toolbar.showProgress("Saving...");
             toolbar.setProgress(-1.0f);
-            parameterPanel.setLoadingStatus("Saving...");
 
             const bool ok = project->saveToFile(file);
             if (ok)
                 project->setProjectFilePath(file);
 
             toolbar.hideProgress();
-            parameterPanel.clearLoadingStatus();
         });
 
         return;
@@ -419,13 +395,11 @@ void MainComponent::saveProject()
 
     toolbar.showProgress("Saving...");
     toolbar.setProgress(-1.0f);
-    parameterPanel.setLoadingStatus("Saving...");
 
     const bool ok = project->saveToFile(target);
     juce::ignoreUnused(ok);
 
     toolbar.hideProgress();
-    parameterPanel.clearLoadingStatus();
 }
 
 void MainComponent::openFile()
@@ -463,7 +437,6 @@ void MainComponent::loadAudioFile(const juce::File& file)
     }
     toolbar.showProgress("Loading audio...");
     toolbar.setProgress(0.0f);
-    parameterPanel.setLoadingStatus("Loading audio...");
 
     if (loaderThread.joinable())
         loaderThread.join();
@@ -731,6 +704,8 @@ void MainComponent::analyzeAudio(Project& targetProject, const std::function<voi
         {
             audioData.voicedMask[i] = audioData.f0[i] > 0;
         }
+        // Initialize baseline F0 for further edits (immutable reference)
+        audioData.baseF0 = audioData.f0;
         
         DBG("Resampled F0 frames: " << audioData.f0.size());
     }
@@ -740,13 +715,15 @@ void MainComponent::analyzeAudio(Project& targetProject, const std::function<voi
         auto [f0Values, voicedValues] = pitchDetector->extractF0(samples, numSamples);
         audioData.f0 = std::move(f0Values);
         audioData.voicedMask = std::move(voicedValues);
+        // Initialize baseline F0
+        audioData.baseF0 = audioData.f0;
     }
     
     onProgress(0.75, "Loading vocoder...");
     // Load vocoder model
     auto modelPath = PlatformPaths::getModelsDirectory()
                         .getChildFile("pc_nsf_hifigan.onnx");
-    
+
     if (modelPath.existsAsFile() && !vocoder->isLoaded())
     {
         if (vocoder->loadModel(modelPath))
@@ -758,14 +735,14 @@ void MainComponent::analyzeAudio(Project& targetProject, const std::function<voi
             DBG("Failed to load vocoder model: " + modelPath.getFullPathName());
         }
     }
-    
+
     onProgress(0.90, "Segmenting notes...");
     // Segment into notes
     segmentIntoNotes(targetProject);
-    
+
     DBG("Loaded audio: " << audioData.waveform.getNumSamples() << " samples");
     DBG("Detected " << audioData.f0.size() << " F0 frames");
-    DBG("Segmented into " << project->getNotes().size() << " notes");
+    DBG("Segmented into " << targetProject.getNotes().size() << " notes");
 }
 
 void MainComponent::exportFile()
@@ -788,15 +765,15 @@ void MainComponent::exportFile()
         if (file != juce::File{})
         {
             auto& audioData = project->getAudioData();
-            
+
             juce::WavAudioFormat wavFormat;
-            auto* outputStream = new juce::FileOutputStream(file);
-            
+            std::unique_ptr<juce::FileOutputStream> outputStream(new juce::FileOutputStream(file));
+
             if (outputStream->openedOk())
             {
                 std::unique_ptr<juce::AudioFormatWriter> writer(
                     wavFormat.createWriterFor(
-                        outputStream,
+                        outputStream.release(),  // Writer takes ownership
                         SAMPLE_RATE,
                         1,
                         16,
@@ -804,16 +781,12 @@ void MainComponent::exportFile()
                         0
                     )
                 );
-                
+
                 if (writer != nullptr)
                 {
                     writer->writeFromAudioSampleBuffer(
                         audioData.waveform, 0, audioData.waveform.getNumSamples());
                 }
-            }
-            else
-            {
-                delete outputStream;
             }
         }
     });
@@ -880,8 +853,9 @@ void MainComponent::resynthesizeIncremental()
         return;
     }
 
-    DBG("Has dirty notes: " << project->hasDirtyNotes() << " Has F0 dirty: " << project->hasF0DirtyRange());
-    
+    DBG("Has dirty notes: " + juce::String(project->hasDirtyNotes() ? "true" : "false") +
+        " Has F0 dirty: " + juce::String(project->hasF0DirtyRange() ? "true" : "false"));
+
     auto [dirtyStart, dirtyEnd] = project->getDirtyFrameRange();
     if (dirtyStart < 0 || dirtyEnd < 0)
     {
@@ -890,7 +864,8 @@ void MainComponent::resynthesizeIncremental()
     }
     
     // Add padding frames for smooth transitions (vocoder needs context)
-    const int paddingFrames = 10;
+    // Increased padding for better quality and smoother transitions
+    const int paddingFrames = 30;  // Increased from 10 to 30 for better context
     int startFrame = std::max(0, dirtyStart - paddingFrames);
     int endFrame = std::min(static_cast<int>(audioData.melSpectrogram.size()), 
                            dirtyEnd + paddingFrames);
@@ -910,11 +885,14 @@ void MainComponent::resynthesizeIncremental()
         DBG("Empty mel or F0 range");
         return;
     }
-    
+
+    // Show progress during synthesis
+    toolbar.showProgress(TR("progress.synthesizing"));
+    toolbar.setProgress(-1.0f);  // Indeterminate progress
+
     // Disable toolbar during synthesis
     toolbar.setEnabled(false);
-    parameterPanel.setLoadingStatus("Preview...");
-    
+
     // Calculate sample positions
     int hopSize = vocoder->getHopSize();
     int startSample = startFrame * hopSize;
@@ -929,9 +907,15 @@ void MainComponent::resynthesizeIncremental()
     // Use SafePointer to prevent accessing destroyed component
     juce::Component::SafePointer<MainComponent> safeThis(this);
 
-    // Run vocoder inference asynchronously
+    // Cancel any previous in-flight incremental synthesis (drop its result)
+    if (incrementalCancelFlag)
+        incrementalCancelFlag->store(true);
+    incrementalCancelFlag = std::make_shared<std::atomic<bool>>(false);
+    uint64_t jobId = ++incrementalJobId;
+
+    // Run vocoder inference asynchronously (coalesced)
     vocoder->inferAsync(melRange, adjustedF0Range,
-        [safeThis, capturedStartSample, capturedEndSample, capturedPaddingFrames, capturedHopSize]
+        [safeThis, capturedStartSample, capturedEndSample, capturedPaddingFrames, capturedHopSize, sampleRate = audioData.sampleRate, jobId]
         (std::vector<float> synthesizedAudio)
         {
             // Check if component still exists
@@ -941,12 +925,19 @@ void MainComponent::resynthesizeIncremental()
                 return;
             }
 
+            // If a newer job is in flight, drop this result
+            if (jobId != safeThis->incrementalJobId.load())
+            {
+                DBG("Incremental synthesis result discarded (outdated job)");
+                return;
+            }
+
             safeThis->toolbar.setEnabled(true);
-            safeThis->parameterPanel.clearLoadingStatus();
 
             if (synthesizedAudio.empty())
             {
                 DBG("Incremental synthesis failed: empty output");
+                safeThis->toolbar.hideProgress();
                 return;
             }
 
@@ -997,10 +988,138 @@ void MainComponent::resynthesizeIncremental()
                 DBG("Volume scaling: " << volumeScale << " (original RMS: " << originalRms << ", synth RMS: " << synthRms << ")");
             }
 
-            // Apply crossfade at boundaries for smooth transitions
-            const int crossfadeSamples = 256;
+            // Improved crossfade: find UV regions or silence for seamless splicing
+            // Use longer crossfade window and smoother window function (Hann window)
+            const int minCrossfadeSamples = 1024;  // ~23ms at 44.1kHz - minimum for smooth transition
+            const int maxCrossfadeSamples = 4096;  // ~93ms at 44.1kHz - maximum for long transitions
             
-            // Copy synthesized audio with crossfade
+            // Helper to find nearest silence or UV region in samples
+            auto findNearestSilence = [&](int centerSample, int searchRange) -> int {
+                int hopSize = capturedHopSize;
+                for (int offset = 0; offset <= searchRange; offset += hopSize)
+                {
+                    for (int dir = -1; dir <= 1; dir += 2)
+                    {
+                        int sample = centerSample + dir * offset;
+                        if (sample >= 0 && sample < totalSamples)
+                        {
+                            // Check if this is in a silence/UV region
+                            int frame = sample / hopSize;
+                            if (frame >= 0 && frame < static_cast<int>(audioData.f0.size()))
+                            {
+                                bool isUnvoiced = (audioData.f0[frame] <= 0.0f);
+                                if (!isUnvoiced && frame < static_cast<int>(audioData.voicedMask.size()))
+                                {
+                                    isUnvoiced = !audioData.voicedMask[frame];
+                                }
+                                
+                                // Also check for low amplitude (silence)
+                                if (isUnvoiced || std::abs(dst[sample]) < 0.01f)
+                                {
+                                    return sample;
+                                }
+                            }
+                        }
+                    }
+                }
+                return -1;
+            };
+            
+            // Find silence/UV regions at boundaries for optimal splice points
+            int startSilence = findNearestSilence(replaceStartSample, sampleRate / 10);  // Search ~100ms
+            int endSilence = findNearestSilence(replaceEndSample, sampleRate / 10);
+            
+            // Determine crossfade regions
+            // Use longer crossfade for smoother transitions (avoid square wave artifacts)
+            int actualCrossfadeStart = minCrossfadeSamples;
+            int actualCrossfadeEnd = minCrossfadeSamples;
+            
+            if (startSilence >= 0 && startSilence < replaceStartSample + replaceSamples / 2)
+            {
+                // Found silence before start: use it as splice point with longer crossfade
+                int distance = replaceStartSample - startSilence;
+                actualCrossfadeStart = std::min(maxCrossfadeSamples, std::max(minCrossfadeSamples, distance * 2));
+            }
+            else
+            {
+                // No silence found: use longer crossfade to avoid clicks
+                actualCrossfadeStart = std::min(maxCrossfadeSamples / 2, replaceSamples / 4);
+            }
+            
+            if (endSilence >= 0 && endSilence > replaceStartSample + replaceSamples / 2)
+            {
+                // Found silence after end: use it as splice point with longer crossfade
+                int distance = endSilence - replaceEndSample;
+                actualCrossfadeEnd = std::min(maxCrossfadeSamples, std::max(minCrossfadeSamples, distance * 2));
+            }
+            else
+            {
+                // No silence found: use longer crossfade to avoid clicks
+                actualCrossfadeEnd = std::min(maxCrossfadeSamples / 2, replaceSamples / 4);
+            }
+            
+            // Ensure crossfade doesn't exceed replace region, but keep it reasonably long
+            actualCrossfadeStart = std::min(actualCrossfadeStart, replaceSamples / 2);
+            actualCrossfadeEnd = std::min(actualCrossfadeEnd, replaceSamples / 2);
+            
+            // Ensure minimum crossfade length to avoid square wave artifacts
+            actualCrossfadeStart = std::max(actualCrossfadeStart, minCrossfadeSamples);
+            actualCrossfadeEnd = std::max(actualCrossfadeEnd, minCrossfadeSamples);
+
+            // Helper to find nearest zero-crossing to align phase at splice points
+            auto findNearestZeroCross = [](const float* buffer, int size, int center, int radius) -> int {
+                int start = std::max(1, center - radius);
+                int end = std::min(size - 1, center + radius);
+                float bestAbs = std::numeric_limits<float>::max();
+                int bestIdx = -1;
+                for (int i = start; i < end; ++i)
+                {
+                    // Look for sign change between i-1 and i
+                    if ((buffer[i - 1] <= 0.0f && buffer[i] >= 0.0f) ||
+                        (buffer[i - 1] >= 0.0f && buffer[i] <= 0.0f))
+                    {
+                        float absVal = std::abs(buffer[i]);
+                        if (absVal < bestAbs)
+                        {
+                            bestAbs = absVal;
+                            bestIdx = i;
+                        }
+                    }
+                }
+                return bestIdx;
+            };
+
+            // Align splice to zero-crossings to reduce phase pops
+            int synthSize = static_cast<int>(synthesizedAudio.size());
+            int startZeroDst = findNearestZeroCross(dst, totalSamples, replaceStartSample, actualCrossfadeStart);
+            int startZeroSrc = findNearestZeroCross(synthesizedAudio.data(), synthSize, srcOffset, actualCrossfadeStart);
+
+            if (startZeroDst >= 0 && startZeroSrc >= 0)
+            {
+                int shift = startZeroDst - replaceStartSample;
+                replaceStartSample += shift;
+                srcOffset += (startZeroSrc - srcOffset);
+            }
+
+            // Recompute replaceSamples after potential shift
+            replaceSamples = std::min(replaceEndSample - replaceStartSample,
+                                      std::max(0, synthSize - srcOffset));
+            if (replaceSamples <= 0)
+            {
+                DBG("Invalid replaceSamples after zero-cross alignment");
+                return;
+            }
+            
+            // Smooth crossfade using cosine (Hann-like) window
+            // Use separate fade-in and fade-out to avoid abrupt transitions
+            auto smoothFade = [](float t) -> float {
+                t = std::clamp(t, 0.0f, 1.0f);
+                // Cosine fade: smoother than linear, avoids clicks
+                return 0.5f * (1.0f - std::cos(3.14159f * t));
+            };
+            
+            // Copy synthesized audio with improved crossfade (all channels)
+            int numChannels = audioData.waveform.getNumChannels();
             for (int i = 0; i < replaceSamples && (replaceStartSample + i) < totalSamples; ++i)
             {
                 int dstIdx = replaceStartSample + i;
@@ -1009,23 +1128,37 @@ void MainComponent::resynthesizeIncremental()
                 if (srcIdx >= 0 && srcIdx < static_cast<int>(synthesizedAudio.size()))
                 {
                     float srcVal = synthesizedAudio[srcIdx] * volumeScale;
-
-                    // Crossfade at start
-                    if (i < crossfadeSamples)
+                    
+                    // Calculate crossfade weights for smooth blending
+                    float fadeInWeight = 1.0f;   // Weight for new audio (fade in)
+                    float fadeOutWeight = 1.0f;  // Weight for original audio (fade out)
+                    
+                    // Crossfade at start: fade in new audio, fade out original
+                    if (i < actualCrossfadeStart)
                     {
-                        float t = static_cast<float>(i) / crossfadeSamples;
-                        dst[dstIdx] = dst[dstIdx] * (1.0f - t) + srcVal * t;
+                        float t = static_cast<float>(i) / actualCrossfadeStart;
+                        fadeInWeight = smoothFade(t);
+                        fadeOutWeight = 1.0f - fadeInWeight;
                     }
-                    // Crossfade at end
-                    else if (i >= replaceSamples - crossfadeSamples)
+                    // Crossfade at end: fade out new audio, fade in original
+                    else if (i >= replaceSamples - actualCrossfadeEnd)
                     {
-                        float t = static_cast<float>(replaceSamples - i) / crossfadeSamples;
-                        dst[dstIdx] = dst[dstIdx] * (1.0f - t) + srcVal * t;
+                        float t = static_cast<float>(replaceSamples - i) / actualCrossfadeEnd;
+                        fadeInWeight = smoothFade(t);
+                        fadeOutWeight = 1.0f - fadeInWeight;
                     }
-                    // Direct copy in the middle
+                    // Middle: full new audio
                     else
                     {
-                        dst[dstIdx] = srcVal;
+                        fadeInWeight = 1.0f;
+                        fadeOutWeight = 0.0f;
+                    }
+                    
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        float* dstCh = audioData.waveform.getWritePointer(ch);
+                        float originalVal = dstCh[dstIdx];
+                        dstCh[dstIdx] = originalVal * fadeOutWeight + srcVal * fadeInWeight;
                     }
                 }
             }
@@ -1035,7 +1168,10 @@ void MainComponent::resynthesizeIncremental()
 
             // Clear dirty flags after successful synthesis
             safeThis->project->clearAllDirty();
-            
+
+            // Hide progress bar
+            safeThis->toolbar.hideProgress();
+
             DBG("Incremental synthesis applied");
         });
 }
@@ -1266,13 +1402,12 @@ void MainComponent::applySettings()
     }
     
     DBG("Applying settings: device=" + device + ", threads=" + juce::String(threads));
-    
+
     // Apply to vocoder
     if (vocoder)
     {
         vocoder->setExecutionDevice(device);
-        vocoder->setNumThreads(threads);
-        
+
         // Reload model if already loaded to apply new execution provider
         if (vocoder->isLoaded())
         {
@@ -1312,23 +1447,23 @@ void MainComponent::loadConfig()
 void MainComponent::saveConfig()
 {
     auto configFile = PlatformPaths::getConfigFile("config.json");
-    
-    auto config = new juce::DynamicObject();
-    
+
+    juce::DynamicObject::Ptr config = new juce::DynamicObject();
+
     // Save last opened file path
     if (project && project->getFilePath().existsAsFile())
     {
         config->setProperty("lastFile", project->getFilePath().getFullPathName());
     }
-    
+
     // Save window size
     config->setProperty("windowWidth", getWidth());
     config->setProperty("windowHeight", getHeight());
-    
+
     // Write to file
-    juce::String jsonText = juce::JSON::toString(juce::var(config));
+    juce::String jsonText = juce::JSON::toString(juce::var(config.get()));
     configFile.replaceWithText(jsonText);
-    
+
     DBG("Config saved to: " + configFile.getFullPathName());
 }
 
@@ -1437,24 +1572,30 @@ void MainComponent::renderProcessedAudio()
     // Show progress
     toolbar.showProgress(TR("progress.rendering"));
 
+    // Use SafePointer to prevent accessing destroyed component
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+
     // Run synthesis in background thread
-    std::thread([this]()
+    std::thread([safeThis]()
     {
+        if (safeThis == nullptr) return;
+
         // Resynthesize with current edits
-        auto& f0Array = project->getAudioData().f0;
-        auto& voicedMask = project->getAudioData().voicedMask;
+        auto& f0Array = safeThis->project->getAudioData().f0;
+        auto& voicedMask = safeThis->project->getAudioData().voicedMask;
 
         if (f0Array.empty())
         {
-            juce::MessageManager::callAsync([this]() {
-                toolbar.hideProgress();
+            juce::MessageManager::callAsync([safeThis]() {
+                if (safeThis != nullptr)
+                    safeThis->toolbar.hideProgress();
             });
             return;
         }
 
         // Apply global pitch offset
         std::vector<float> modifiedF0 = f0Array;
-        float globalOffset = project->getGlobalPitchOffset();
+        float globalOffset = safeThis->project->getGlobalPitchOffset();
         for (size_t i = 0; i < modifiedF0.size(); ++i)
         {
             if (voicedMask[i] && modifiedF0[i] > 0)
@@ -1462,22 +1603,23 @@ void MainComponent::renderProcessedAudio()
         }
 
         // Get mel spectrogram
-        auto& melSpec = project->getAudioData().melSpectrogram;
+        auto& melSpec = safeThis->project->getAudioData().melSpectrogram;
         if (melSpec.empty())
         {
-            juce::MessageManager::callAsync([this]() {
-                toolbar.hideProgress();
+            juce::MessageManager::callAsync([safeThis]() {
+                if (safeThis != nullptr)
+                    safeThis->toolbar.hideProgress();
             });
             return;
         }
 
         // Synthesize
-        auto synthesized = vocoder->infer(melSpec, modifiedF0);
+        auto synthesized = safeThis->vocoder->infer(melSpec, modifiedF0);
 
         if (!synthesized.empty())
         {
             // Create output buffer
-            juce::AudioBuffer<float> outputBuffer(originalWaveform.getNumChannels(),
+            juce::AudioBuffer<float> outputBuffer(safeThis->originalWaveform.getNumChannels(),
                                                    static_cast<int>(synthesized.size()));
 
             // Copy to all channels
@@ -1487,16 +1629,20 @@ void MainComponent::renderProcessedAudio()
                     outputBuffer.setSample(ch, i, synthesized[i]);
             }
 
-            juce::MessageManager::callAsync([this, buf = std::move(outputBuffer)]() mutable {
-                toolbar.hideProgress();
-                if (onRenderComplete)
-                    onRenderComplete(buf);
+            juce::MessageManager::callAsync([safeThis, buf = std::move(outputBuffer)]() mutable {
+                if (safeThis != nullptr)
+                {
+                    safeThis->toolbar.hideProgress();
+                    if (safeThis->onRenderComplete)
+                        safeThis->onRenderComplete(buf);
+                }
             });
         }
         else
         {
-            juce::MessageManager::callAsync([this]() {
-                toolbar.hideProgress();
+            juce::MessageManager::callAsync([safeThis]() {
+                if (safeThis != nullptr)
+                    safeThis->toolbar.hideProgress();
             });
         }
     }).detach();

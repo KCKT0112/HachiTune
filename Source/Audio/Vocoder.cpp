@@ -95,15 +95,56 @@ bool Vocoder::loadModel(const juce::File& modelPath)
     }
     
     try {
+        // Validate ONNX environment
+        if (!onnxEnv)
+        {
+            log("ONNX Runtime environment is null");
+            return false;
+        }
+        
         // Create session with current settings
+        log("Creating session options...");
         Ort::SessionOptions sessionOptions = createSessionOptions();
         
         // Create session
 #ifdef _WIN32
-        std::wstring modelPathW = modelPath.getFullPathName().toWideCharPointer();
+        // Safely convert path to wide string
+        juce::String pathStr = modelPath.getFullPathName();
+        if (pathStr.isEmpty())
+        {
+            log("Model path is empty");
+            return false;
+        }
+        
+        // Convert to wide string safely
+        const wchar_t* pathWChar = pathStr.toWideCharPointer();
+        if (pathWChar == nullptr)
+        {
+            log("Failed to convert model path to wide string");
+            return false;
+        }
+        std::wstring modelPathW(pathWChar);
+        
+        // Validate path length (Windows MAX_PATH is 260, but extended paths can be longer)
+        if (modelPathW.length() == 0 || modelPathW.length() > 32767)
+        {
+            log("Invalid model path length: " + std::to_string(modelPathW.length()));
+            return false;
+        }
+        
+        log("Loading model from: " + pathStr.toStdString());
+        log("Path length: " + std::to_string(modelPathW.length()) + " characters");
+        
+        // Create the session - this is where the exception might occur
         onnxSession = std::make_unique<Ort::Session>(*onnxEnv, modelPathW.c_str(), sessionOptions);
 #else
         std::string modelPathStr = modelPath.getFullPathName().toStdString();
+        if (modelPathStr.empty())
+        {
+            log("Model path is empty");
+            return false;
+        }
+        log("Loading model from: " + modelPathStr);
         onnxSession = std::make_unique<Ort::Session>(*onnxEnv, modelPathStr.c_str(), sessionOptions);
 #endif
         
@@ -372,14 +413,21 @@ std::vector<float> Vocoder::inferWithPitchShift(const std::vector<std::vector<fl
 
 void Vocoder::inferAsync(const std::vector<std::vector<float>>& mel,
                          const std::vector<float>& f0,
-                         std::function<void(std::vector<float>)> callback)
+                         std::function<void(std::vector<float>)> callback,
+                         std::shared_ptr<std::atomic<bool>> cancelFlag)
 {
     // Run inference in background thread
-    std::thread([this, mel, f0, callback]() {
+    std::thread([this, mel, f0, callback, cancelFlag]() {
         auto result = this->infer(mel, f0);
         
+        // If canceled, skip callback
+        if (cancelFlag && cancelFlag->load())
+            return;
+        
         // Call callback on message thread
-        juce::MessageManager::callAsync([callback, result]() {
+        juce::MessageManager::callAsync([callback, result, cancelFlag]() {
+            if (cancelFlag && cancelFlag->load())
+                return;
             callback(result);
         });
     }).detach();

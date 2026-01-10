@@ -9,6 +9,7 @@ WaveformComponent::WaveformComponent()
 
 WaveformComponent::~WaveformComponent()
 {
+    horizontalScrollBar.removeListener(this);
 }
 
 void WaveformComponent::paint(juce::Graphics& g)

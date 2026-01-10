@@ -86,7 +86,7 @@ private:
     void drawCursor(juce::Graphics& g);
     void drawPianoKeys(juce::Graphics& g);
     void drawDrawingCursor(juce::Graphics& g);  // Draw mode indicator
-    
+
     float midiToY(float midiNote) const;
     float yToMidi(float y) const;
     float timeToX(double time) const;
@@ -106,6 +106,7 @@ private:
     float pixelsPerSemitone = DEFAULT_PIXELS_PER_SEMITONE;
     
     double cursorTime = 0.0;
+    double lastCursorTime = -1.0;  // Track previous cursor position for dirty rect
     double scrollX = 0.0;
     double scrollY = 0.0;
     
@@ -136,6 +137,17 @@ private:
     // Scrollbars
     juce::ScrollBar horizontalScrollBar { false };
     juce::ScrollBar verticalScrollBar { true };
+
+    // Waveform cache for performance
+    juce::Image waveformCache;
+    double cachedScrollX = -1.0;
+    float cachedPixelsPerSecond = -1.0f;
+    int cachedWidth = 0;
+    int cachedHeight = 0;
+
+    // Mouse drag throttling
+    juce::int64 lastDragRepaintTime = 0;
+    static constexpr juce::int64 minDragRepaintInterval = 16;  // ~60fps max
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRollComponent)
 };

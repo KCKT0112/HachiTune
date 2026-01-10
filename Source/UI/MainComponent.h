@@ -9,6 +9,7 @@
 #include "../Audio/Vocoder.h"
 #include "../Utils/UndoManager.h"
 #include "CustomTitleBar.h"
+#include "CustomMenuBarLookAndFeel.h"
 #include "ToolbarComponent.h"
 #include "PianoRollComponent.h"
 #include "ParameterPanel.h"
@@ -99,10 +100,8 @@ private:
 
     const bool enableAudioDeviceFlag;
 
-#if !JUCE_MAC
-    CustomTitleBar titleBar;
+    CustomMenuBarLookAndFeel menuBarLookAndFeel;
     juce::MenuBarComponent menuBar;
-#endif
     ToolbarComponent toolbar;
     PianoRollComponent pianoRoll;
     ParameterPanel parameterPanel;
@@ -120,10 +119,6 @@ private:
     // Sync flag to prevent infinite loops
     bool isSyncingZoom = false;
 
-#if JUCE_MAC
-    juce::ComponentDragger dragger;
-#endif
-
     // Async load state
     std::thread loaderThread;
     std::atomic<bool> isLoadingAudio { false };
@@ -132,6 +127,15 @@ private:
     juce::CriticalSection loadingMessageLock;
     juce::String loadingMessage;
     juce::String lastLoadingMessage;
+
+    // Cursor update throttling
+    std::atomic<double> pendingCursorTime { 0.0 };
+    std::atomic<bool> hasPendingCursorUpdate { false };
+    juce::int64 lastCursorUpdateTime = 0;
+
+    // Incremental synthesis cancellation / coalescing
+    std::shared_ptr<std::atomic<bool>> incrementalCancelFlag;
+    std::atomic<uint64_t> incrementalJobId { 0 };
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

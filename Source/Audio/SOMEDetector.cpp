@@ -17,6 +17,25 @@ bool SOMEDetector::loadModel(const juce::File& modelPath)
         sessionOptions.SetIntraOpNumThreads(4);
         sessionOptions.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
+        // Add execution provider based on build configuration
+#ifdef USE_DIRECTML
+        try {
+            sessionOptions.AppendExecutionProvider("DML");
+            DBG("SOME: DirectML execution provider added");
+        } catch (const Ort::Exception& e) {
+            DBG("SOME: Failed to add DirectML provider, using CPU");
+        }
+#elif defined(USE_CUDA)
+        try {
+            OrtCUDAProviderOptions cudaOptions{};
+            cudaOptions.device_id = 0;
+            sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
+            DBG("SOME: CUDA execution provider added");
+        } catch (const Ort::Exception& e) {
+            DBG("SOME: Failed to add CUDA provider, using CPU");
+        }
+#endif
+
 #ifdef _WIN32
         std::wstring modelPathW = modelPath.getFullPathName().toWideCharPointer();
         onnxSession = std::make_unique<Ort::Session>(*onnxEnv, modelPathW.c_str(), sessionOptions);

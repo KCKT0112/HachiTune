@@ -3,10 +3,6 @@
 #include <algorithm>
 #include <numeric>
 
-#if defined(_WIN32) && defined(USE_DIRECTML)
-#include <dml_provider_factory.h>
-#endif
-
 FCPEPitchDetector::FCPEPitchDetector()
 {
     initMelFilterbank();
@@ -156,26 +152,33 @@ bool FCPEPitchDetector::loadModel(const juce::File& modelPath,
 #if defined(_WIN32) && defined(USE_DIRECTML)
         if (provider == GPUProvider::DirectML)
         {
-            // DirectML for Windows (AMD/Intel/NVIDIA)
-            OrtSessionOptionsAppendExecutionProvider_DML(sessionOptions, deviceId);
-            DBG("Using DirectML execution provider, device: " << deviceId);
+            try {
+                sessionOptions.AppendExecutionProvider("DML");
+                DBG("FCPE: DirectML execution provider added");
+            } catch (const Ort::Exception& e) {
+                DBG("FCPE: Failed to add DirectML provider, using CPU: " << e.what());
+            }
         }
         else
 #endif
 #ifdef USE_CUDA
         if (provider == GPUProvider::CUDA)
         {
-            OrtCUDAProviderOptions cudaOptions;
-            cudaOptions.device_id = deviceId;
-            sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
-            DBG("Using CUDA execution provider, device: " << deviceId);
+            try {
+                OrtCUDAProviderOptions cudaOptions;
+                cudaOptions.device_id = deviceId;
+                sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
+                DBG("FCPE: CUDA execution provider added, device: " << deviceId);
+            } catch (const Ort::Exception& e) {
+                DBG("FCPE: Failed to add CUDA provider, using CPU: " << e.what());
+            }
         }
 #endif
         {
             // CPU fallback - do nothing, CPU is default
             if (provider != GPUProvider::CPU)
             {
-                DBG("Requested GPU provider not available, falling back to CPU");
+                DBG("FCPE: Using CPU execution provider");
             }
         }
 

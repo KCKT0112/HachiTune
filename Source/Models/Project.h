@@ -15,7 +15,8 @@ struct AudioData
     
     // Extracted features
     std::vector<std::vector<float>> melSpectrogram;  // [T, NUM_MELS]
-    std::vector<float> f0;                            // [T]
+    std::vector<float> f0;                            // [T] (current/edited)
+    std::vector<float> baseF0;                        // [T] (immutable baseline)
     std::vector<bool> voicedMask;                     // [T]
     
     float getDuration() const

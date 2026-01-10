@@ -27,7 +27,10 @@ PianoRollComponent::PianoRollComponent() {
   centerOnPitchRange(48.0f, 60.0f);
 }
 
-PianoRollComponent::~PianoRollComponent() {}
+PianoRollComponent::~PianoRollComponent() {
+  horizontalScrollBar.removeListener(this);
+  verticalScrollBar.removeListener(this);
+}
 
 void PianoRollComponent::paint(juce::Graphics &g) {
   // Background
@@ -107,27 +110,38 @@ void PianoRollComponent::drawBackgroundWaveform(
   if (audioData.waveform.getNumSamples() == 0)
     return;
 
-  float duration = audioData.getDuration();
-  float totalWidth = duration * pixelsPerSecond;
+  // Check if we can use cached waveform
+  bool cacheValid = waveformCache.isValid() &&
+                    std::abs(cachedScrollX - scrollX) < 1.0 &&
+                    std::abs(cachedPixelsPerSecond - pixelsPerSecond) < 0.01f &&
+                    cachedWidth == visibleArea.getWidth() &&
+                    cachedHeight == visibleArea.getHeight();
+
+  if (cacheValid) {
+    g.drawImageAt(waveformCache, visibleArea.getX(), visibleArea.getY());
+    return;
+  }
+
+  // Render waveform to cache
+  waveformCache = juce::Image(juce::Image::ARGB, visibleArea.getWidth(),
+                               visibleArea.getHeight(), true);
+  juce::Graphics cacheGraphics(waveformCache);
 
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
 
   // Draw waveform filling the visible area height
   float visibleHeight = static_cast<float>(visibleArea.getHeight());
-  float centerY = visibleArea.getY() + visibleHeight * 0.5f;
+  float centerY = visibleHeight * 0.5f;
   float waveformHeight = visibleHeight * 0.8f;
 
   juce::Path waveformPath;
   int visibleWidth = visibleArea.getWidth();
 
-  // Start from left edge of visible area
-  float startX = static_cast<float>(visibleArea.getX());
-  waveformPath.startNewSubPath(startX, centerY);
+  waveformPath.startNewSubPath(0.0f, centerY);
 
   // Draw only the visible portion
   for (int px = 0; px < visibleWidth; ++px) {
-    float x = startX + px;
     double time = (scrollX + px) / pixelsPerSecond;
     int startSample = static_cast<int>(time * SAMPLE_RATE);
     int endSample =
@@ -141,12 +155,11 @@ void PianoRollComponent::drawBackgroundWaveform(
       maxVal = std::max(maxVal, std::abs(samples[i]));
 
     float y = centerY - maxVal * waveformHeight * 0.5f;
-    waveformPath.lineTo(x, y);
+    waveformPath.lineTo(static_cast<float>(px), y);
   }
 
   // Bottom half (reverse)
   for (int px = visibleWidth - 1; px >= 0; --px) {
-    float x = startX + px;
     double time = (scrollX + px) / pixelsPerSecond;
     int startSample = static_cast<int>(time * SAMPLE_RATE);
     int endSample =
@@ -160,13 +173,22 @@ void PianoRollComponent::drawBackgroundWaveform(
       maxVal = std::max(maxVal, std::abs(samples[i]));
 
     float y = centerY + maxVal * waveformHeight * 0.5f;
-    waveformPath.lineTo(x, y);
+    waveformPath.lineTo(static_cast<float>(px), y);
   }
 
   waveformPath.closeSubPath();
 
-  g.setColour(juce::Colour(COLOR_WAVEFORM));
-  g.fillPath(waveformPath);
+  cacheGraphics.setColour(juce::Colour(COLOR_WAVEFORM));
+  cacheGraphics.fillPath(waveformPath);
+
+  // Update cache metadata
+  cachedScrollX = scrollX;
+  cachedPixelsPerSecond = pixelsPerSecond;
+  cachedWidth = visibleArea.getWidth();
+  cachedHeight = visibleArea.getHeight();
+
+  // Draw cached image
+  g.drawImageAt(waveformCache, visibleArea.getX(), visibleArea.getY());
 }
 
 void PianoRollComponent::drawGrid(juce::Graphics &g) {
@@ -283,8 +305,18 @@ void PianoRollComponent::drawNotes(juce::Graphics &g) {
                              : nullptr;
   int totalSamples = audioData.waveform.getNumSamples();
 
+  // Calculate visible time range for culling
+  double visibleStartTime = scrollX / pixelsPerSecond;
+  double visibleEndTime = (scrollX + getWidth()) / pixelsPerSecond;
+
   for (auto &note : project->getNotes()) {
-    float x = framesToSeconds(note.getStartFrame()) * pixelsPerSecond;
+    // Viewport culling: skip notes outside visible area
+    double noteStartTime = framesToSeconds(note.getStartFrame());
+    double noteEndTime = framesToSeconds(note.getEndFrame());
+    if (noteEndTime < visibleStartTime || noteStartTime > visibleEndTime)
+      continue;
+
+    float x = static_cast<float>(noteStartTime * pixelsPerSecond);
     float w = framesToSeconds(note.getDurationFrames()) * pixelsPerSecond;
     float h = pixelsPerSemitone;
 
@@ -384,37 +416,48 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
   if (audioData.f0.empty())
     return;
 
-  // Get global pitch offset
-  float globalOffset = project->getGlobalPitchOffset();
+  // Calculate visible frame range for culling
+  double visibleStartTime = scrollX / pixelsPerSecond;
+  double visibleEndTime = (scrollX + getWidth()) / pixelsPerSecond;
+  int startFrame = std::max(0, static_cast<int>(visibleStartTime * audioData.sampleRate / HOP_SIZE));
+  int endFrame = std::min(static_cast<int>(audioData.f0.size()),
+                          static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
 
-  // Build a map of frame -> pitch offset for quick lookup
-  std::vector<float> frameOffsets(audioData.f0.size(), globalOffset);
-  for (const auto &note : project->getNotes()) {
-    float noteOffset = note.getPitchOffset() + globalOffset;
-    int startFrame = note.getStartFrame();
-    int endFrame =
-        std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
-    for (int i = startFrame; i < endFrame; ++i) {
-      frameOffsets[i] = noteOffset;
+  // Use current edited F0 slice (reflects actual edits baked into audioData.f0)
+  std::vector<float> adjustedF0;
+  adjustedF0.reserve(std::max(0, endFrame - startFrame));
+  float globalOffset = project->getGlobalPitchOffset();
+  float globalRatio = std::pow(2.0f, globalOffset / 12.0f);
+  for (int i = startFrame; i < endFrame; ++i) {
+    if (i >= 0 && i < static_cast<int>(audioData.f0.size())) {
+      float v = audioData.f0[static_cast<size_t>(i)];
+      if (v > 0.0f && globalOffset != 0.0f)
+        v *= globalRatio;
+      adjustedF0.push_back(v);
+    } else {
+      adjustedF0.push_back(0.0f);
     }
   }
 
-  // Draw a single continuous pitch curve
+  // Draw a single continuous pitch curve (only visible portion, smoothed)
   g.setColour(juce::Colour(COLOR_PITCH_CURVE));
   juce::Path path;
   bool pathStarted = false;
   int gapFrames = 0;
   const int maxGapFrames = 5; // Allow small gaps to keep curve connected
 
-  for (size_t i = 0; i < audioData.f0.size(); ++i) {
-    float f0 = audioData.f0[i];
+  for (int i = startFrame; i < endFrame; ++i) {
+    int localIdx = i - startFrame;
+    if (localIdx < 0 || localIdx >= static_cast<int>(adjustedF0.size()))
+      continue;
 
-    if (f0 > 0.0f && i < audioData.voicedMask.size() &&
+    float f0 = adjustedF0[static_cast<size_t>(localIdx)];
+
+    if (f0 > 0.0f && i < static_cast<int>(audioData.voicedMask.size()) &&
         audioData.voicedMask[i]) {
-      // Apply pitch offset
-      float adjustedF0 = f0 * std::pow(2.0f, frameOffsets[i] / 12.0f);
-      float midi = freqToMidi(adjustedF0);
-      float x = framesToSeconds(static_cast<int>(i)) * pixelsPerSecond;
+      // Already adjusted, just convert to MIDI for drawing
+      float midi = freqToMidi(f0);
+      float x = framesToSeconds(i) * pixelsPerSecond;
       float y = midiToY(midi) + pixelsPerSemitone * 0.5f;  // Center in row
 
       if (!pathStarted) {
@@ -555,6 +598,7 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
     if (!note->hasDeltaPitch() && project)
     {
         auto& audioData = project->getAudioData();
+        const auto& baseF0 = audioData.baseF0.empty() ? audioData.f0 : audioData.baseF0;
         int startFrame = note->getStartFrame();
         int endFrame = note->getEndFrame();
         int numFrames = endFrame - startFrame;
@@ -565,9 +609,9 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
         for (int i = 0; i < numFrames; ++i)
         {
             int globalFrame = startFrame + i;
-            if (globalFrame < static_cast<int>(audioData.f0.size()) && audioData.f0[globalFrame] > 0.0f)
+            if (globalFrame < static_cast<int>(baseF0.size()) && baseF0[globalFrame] > 0.0f)
             {
-                float f0Midi = freqToMidi(audioData.f0[globalFrame]);
+                float f0Midi = freqToMidi(baseF0[globalFrame]);
                 delta[i] = f0Midi - baseMidi;
             }
         }
@@ -613,6 +657,10 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
 }
 
 void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
+  // Throttle repaints during drag to ~60fps max
+  juce::int64 now = juce::Time::getMillisecondCounter();
+  bool shouldRepaint = (now - lastDragRepaintTime) >= minDragRepaintInterval;
+
   if (editMode == EditMode::Draw && isDrawing) {
     float adjustedX = e.x - pianoKeysWidth + static_cast<float>(scrollX);
     float adjustedY = e.y - timelineHeight + static_cast<float>(scrollY);
@@ -622,7 +670,10 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
     if (onPitchEdited)
       onPitchEdited();
 
-    repaint();
+    if (shouldRepaint) {
+      repaint();
+      lastDragRepaintTime = now;
+    }
     return;
   }
 
@@ -639,7 +690,10 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
     if (onPitchEdited)
       onPitchEdited();
 
-    repaint();
+    if (shouldRepaint) {
+      repaint();
+      lastDragRepaintTime = now;
+    }
   }
 }
 
@@ -659,23 +713,47 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
     int endFrame = draggedNote->getEndFrame();
 
     // Update the note's midiNote and F0 values
-    if (std::abs(newOffset) > 0.001f && project) {
+    if (project) {
       auto& audioData = project->getAudioData();
       int f0Size = static_cast<int>(audioData.f0.size());
 
-      // Update F0 values using delta pitch model
-      if (draggedNote->hasDeltaPitch()) {
+      // Apply visual offset even if tiny, so UI reflects final state consistently
+      draggedNote->setPitchOffset(newOffset);
+
+      if (std::abs(newOffset) > 0.001f) {
+        // Update F0 values using delta pitch model
+        if (draggedNote->hasDeltaPitch()) {
         const auto& delta = draggedNote->getDeltaPitch();
         float newBaseMidi = originalMidiNote + newOffset;
+        const auto& baseF0 = audioData.baseF0.empty() ? audioData.f0 : audioData.baseF0;
 
-        for (int i = startFrame; i < endFrame && i < f0Size; ++i) {
-          int localIdx = i - startFrame;
+          for (int i = startFrame; i < endFrame && i < f0Size; ++i) {
+            int localIdx = i - startFrame;
           float d = (localIdx < static_cast<int>(delta.size())) ? delta[localIdx] : 0.0f;
-          audioData.f0[i] = midiToFreq(newBaseMidi + d);
-        }
+          // Reconstruct from base pitch rather than cumulative edits
+          float baseMidi = (i < static_cast<int>(baseF0.size()) && baseF0[i] > 0.0f)
+                               ? freqToMidi(baseF0[i])
+                               : newBaseMidi;
+          float targetMidi = baseMidi + (newBaseMidi - originalMidiNote) + d;
+          audioData.f0[i] = midiToFreq(targetMidi);
+          }
 
-        // Set F0 dirty range for synthesis
-        project->setF0DirtyRange(startFrame, endFrame);
+          // Set F0 dirty range for synthesis
+          project->setF0DirtyRange(startFrame, endFrame);
+        } else {
+          // Fallback: apply uniform shift when no delta map
+          float ratio = std::pow(2.0f, newOffset / 12.0f);
+          for (int i = startFrame; i < endFrame && i < f0Size; ++i) {
+          float baseVal = (i < static_cast<int>(audioData.baseF0.size()) && audioData.baseF0[i] > 0.0f)
+                              ? audioData.baseF0[i]
+                              : audioData.f0[i];
+          if (baseVal > 0.0f) {
+            audioData.f0[i] = baseVal * ratio;
+            audioData.voicedMask[i] = true;
+          }
+          }
+          project->setF0DirtyRange(startFrame, endFrame);
+        }
       }
 
       // Create undo action before updating note
@@ -701,41 +779,147 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
       // Reset offset since base note was updated
       draggedNote->setPitchOffset(0.0f);
 
-      // Apply Gaussian smoothing at boundaries
-      auto smoothBoundary = [&](int centerFrame) {
-        if (centerFrame < 5 || centerFrame >= f0Size - 5)
-          return;
-
-        constexpr float weights[] = {0.06f, 0.12f, 0.18f, 0.28f, 0.18f, 0.12f, 0.06f};
-        float original[7];
-        for (int i = -3; i <= 3; ++i) {
-          int idx = centerFrame + i;
-          original[i + 3] = (idx >= 0 && idx < f0Size) ? audioData.f0[idx] : 0.0f;
-        }
-
-        for (int i = -3; i <= 3; ++i) {
-          int idx = centerFrame + i;
-          if (idx >= 0 && idx < f0Size && original[i + 3] > 0) {
-            float sum = 0.0f, weightSum = 0.0f;
-            for (int j = -3; j <= 3; ++j) {
-              if (original[j + 3] > 0) {
-                sum += original[j + 3] * weights[j + 3];
-                weightSum += weights[j + 3];
+      // Improved boundary smoothing: find UV regions or silence for seamless transitions
+      // This avoids phase discontinuities by splicing at unvoiced regions
+      auto findNearestUVRegion = [&](int centerFrame, int searchRange) -> int {
+        // Search for unvoiced (UV) region or silence near the boundary
+        for (int offset = 0; offset <= searchRange; ++offset) {
+          // Check both directions
+          for (int dir = -1; dir <= 1; dir += 2) {
+            int frame = centerFrame + dir * offset;
+            if (frame >= 0 && frame < f0Size) {
+              // Check if this is an unvoiced frame (F0 == 0 or voicedMask == false)
+              bool isUnvoiced = (audioData.f0[frame] <= 0.0f);
+              if (!isUnvoiced && frame < static_cast<int>(audioData.voicedMask.size())) {
+                isUnvoiced = !audioData.voicedMask[frame];
+              }
+              
+              // Also check for silence (very low amplitude)
+              if (isUnvoiced) {
+                return frame;
               }
             }
-            if (weightSum > 0)
-              audioData.f0[idx] = sum / weightSum;
+          }
+        }
+        return -1;  // No UV region found
+      };
+
+      // Smooth boundary with crossfade, preferring UV regions
+      auto smoothBoundaryAtUV = [&](int noteBoundary, bool isStart) {
+        const int maxSearchRange = 20;  // Search up to 20 frames for UV region
+        const int minCrossfadeFrames = 5;
+        const int maxCrossfadeFrames = 15;
+        
+        // Find nearest UV region
+        int uvFrame = findNearestUVRegion(noteBoundary, maxSearchRange);
+        
+        if (uvFrame >= 0) {
+          // Found UV region: use it as splice point with crossfade
+          int crossfadeStart, crossfadeEnd;
+          if (isStart) {
+            // At note start: crossfade from UV region into note
+            crossfadeStart = std::max(0, uvFrame - maxCrossfadeFrames);
+            crossfadeEnd = std::min(f0Size, noteBoundary + maxCrossfadeFrames);
+          } else {
+            // At note end: crossfade from note into UV region
+            crossfadeStart = std::max(0, noteBoundary - maxCrossfadeFrames);
+            crossfadeEnd = std::min(f0Size, uvFrame + maxCrossfadeFrames);
+          }
+          
+          // Apply crossfade: blend original F0 (outside note) with new F0 (inside note)
+          for (int i = crossfadeStart; i < crossfadeEnd && i < f0Size; ++i) {
+            bool isInsideNote = (i >= startFrame && i < endFrame);
+            bool isInCrossfadeRegion = (i >= crossfadeStart && i < crossfadeEnd);
+            
+            if (isInCrossfadeRegion) {
+              // Calculate crossfade weight (0 = original, 1 = new)
+              float t;
+              if (isStart) {
+                t = static_cast<float>(i - crossfadeStart) / (crossfadeEnd - crossfadeStart);
+              } else {
+                t = static_cast<float>(crossfadeEnd - i) / (crossfadeEnd - crossfadeStart);
+              }
+              t = std::clamp(t, 0.0f, 1.0f);
+              
+              // Use smooth curve (ease-in-out)
+              t = t * t * (3.0f - 2.0f * t);
+              
+              // Get original F0 value (before edit)
+              float originalF0 = 0.0f;
+              int localIdx = i - startFrame;
+              if (localIdx >= 0 && localIdx < static_cast<int>(originalF0Values.size())) {
+                originalF0 = originalF0Values[localIdx];
+              } else if (i < startFrame || i >= endFrame) {
+                originalF0 = audioData.f0[i];  // Outside note, use current value
+              }
+              
+              // Blend original and new F0
+              float newF0 = audioData.f0[i];
+              if (originalF0 > 0.0f && newF0 > 0.0f) {
+                audioData.f0[i] = originalF0 * (1.0f - t) + newF0 * t;
+              } else if (newF0 > 0.0f) {
+                audioData.f0[i] = newF0 * t;  // Fade in new F0
+              }
+            }
+          }
+        } else {
+          // No UV region found: use extended Gaussian smoothing as fallback
+          const int smoothRadius = 10;  // Larger smoothing window
+          if (noteBoundary < smoothRadius || noteBoundary >= f0Size - smoothRadius)
+            return;
+          
+          // Extended Gaussian smoothing
+          constexpr int kernelSize = 21;  // -10 to +10
+          constexpr float sigma = 3.0f;
+          float weights[kernelSize];
+          float weightSum = 0.0f;
+          
+          for (int i = 0; i < kernelSize; ++i) {
+            float x = static_cast<float>(i - kernelSize / 2);
+            weights[i] = std::exp(-0.5f * x * x / (sigma * sigma));
+            weightSum += weights[i];
+          }
+          
+          // Normalize weights
+          for (int i = 0; i < kernelSize; ++i) {
+            weights[i] /= weightSum;
+          }
+          
+          // Apply smoothing
+          std::vector<float> smoothed(kernelSize);
+          for (int i = 0; i < kernelSize; ++i) {
+            int idx = noteBoundary + i - kernelSize / 2;
+            smoothed[i] = (idx >= 0 && idx < f0Size) ? audioData.f0[idx] : 0.0f;
+          }
+          
+          for (int i = 0; i < kernelSize; ++i) {
+            int idx = noteBoundary + i - kernelSize / 2;
+            if (idx >= 0 && idx < f0Size) {
+              float sum = 0.0f;
+              for (int j = 0; j < kernelSize; ++j) {
+                if (smoothed[j] > 0.0f) {
+                  sum += smoothed[j] * weights[j];
+                }
+              }
+              if (sum > 0.0f) {
+                audioData.f0[idx] = sum;
+              }
+            }
           }
         }
       };
 
-      smoothBoundary(startFrame);
-      smoothBoundary(endFrame);
+      // Apply improved boundary smoothing
+      smoothBoundaryAtUV(startFrame, true);   // Start boundary
+      smoothBoundaryAtUV(endFrame, false);    // End boundary
     }
 
-    // Trigger incremental synthesis when pitch edit is finished
+    // Trigger UI update + incremental synthesis when pitch edit is finished
+    if (onPitchEdited)
+      onPitchEdited();   // immediate repaint/update of pitch curves
+    repaint();
     if (onPitchEditFinished)
-      onPitchEditFinished();
+      onPitchEditFinished();  // downstream synthesis
   }
 
   isDragging = false;
@@ -890,8 +1074,26 @@ void PianoRollComponent::setProject(Project *proj) {
 }
 
 void PianoRollComponent::setCursorTime(double time) {
+  if (std::abs(cursorTime - time) < 0.0001) return;  // Skip if no change
+
+  // Calculate dirty rectangles for old and new cursor positions
+  auto getCursorRect = [this](double t) -> juce::Rectangle<int> {
+    float x = static_cast<float>(t * pixelsPerSecond - scrollX) + pianoKeysWidth;
+    int width = 3;  // Cursor width + 1px margin
+    return juce::Rectangle<int>(static_cast<int>(x - 1), timelineHeight,
+                                 width, getHeight() - timelineHeight);
+  };
+
+  // Repaint old cursor position
+  if (lastCursorTime >= 0.0) {
+    repaint(getCursorRect(lastCursorTime));
+  }
+
+  lastCursorTime = cursorTime;
   cursorTime = time;
-  repaint();
+
+  // Repaint new cursor position
+  repaint(getCursorRect(cursorTime));
 }
 
 void PianoRollComponent::setPixelsPerSecond(float pps, bool centerOnCursor) {
@@ -969,10 +1171,26 @@ void PianoRollComponent::setEditMode(EditMode mode) {
   editMode = mode;
 
   // Change cursor based on mode
-  if (mode == EditMode::Draw)
-    setMouseCursor(juce::MouseCursor::CrosshairCursor);
-  else
+  if (mode == EditMode::Draw) {
+    // Create a custom pen cursor
+    // Simple pen icon: 16x16 pixels with pen tip at bottom-left
+    juce::Image penImage(juce::Image::ARGB, 16, 16, true);
+    juce::Graphics g(penImage);
+
+    // Draw a simple pen shape
+    g.setColour(juce::Colours::white);
+    // Pen body (diagonal line from top-right to bottom-left)
+    g.drawLine(12.0f, 2.0f, 2.0f, 12.0f, 2.0f);
+    // Pen tip (small triangle at bottom-left)
+    juce::Path tip;
+    tip.addTriangle(0.0f, 14.0f, 4.0f, 10.0f, 2.0f, 12.0f);
+    g.fillPath(tip);
+
+    // Set hotspot at pen tip (bottom-left corner)
+    setMouseCursor(juce::MouseCursor(penImage, 0, 14));
+  } else {
     setMouseCursor(juce::MouseCursor::NormalCursor);
+  }
 
   repaint();
 }

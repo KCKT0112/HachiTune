@@ -65,7 +65,8 @@ public:
      */
     void inferAsync(const std::vector<std::vector<float>>& mel,
                     const std::vector<float>& f0,
-                    std::function<void(std::vector<float>)> callback);
+                    std::function<void(std::vector<float>)> callback,
+                    std::shared_ptr<std::atomic<bool>> cancelFlag = nullptr);
     
     // Model parameters
     int getSampleRate() const { return sampleRate; }
@@ -86,8 +87,14 @@ private:
     int hopSize = 512;
     int numMels = 128;
     bool pitchControllable = true;
-    
+
+#ifdef USE_DIRECTML
+    juce::String executionDevice = "DirectML";
+#elif defined(USE_CUDA)
+    juce::String executionDevice = "CUDA";
+#else
     juce::String executionDevice = "CPU";
+#endif
 
     juce::File modelFile;
     std::unique_ptr<std::ofstream> logFile;

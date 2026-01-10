@@ -55,6 +55,7 @@
 
   "progress.loading": "Loading...",
   "progress.analyzing": "Analyzing...",
+  "progress.synthesizing": "Synthesizing...",
   "progress.rendering": "Rendering...",
   "progress.ready": "Ready"
 }

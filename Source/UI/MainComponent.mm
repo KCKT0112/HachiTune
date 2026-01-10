@@ -35,7 +35,13 @@ MainComponent::MainComponent(bool enableAudioDevice)
 
     if (fcpeModelPath.existsAsFile())
     {
-        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath))
+#ifdef USE_DIRECTML
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::DirectML))
+#elif defined(USE_CUDA)
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::CUDA))
+#else
+        if (fcpePitchDetector->loadModel(fcpeModelPath, melFilterbankPath, centTablePath, GPUProvider::CPU))
+#endif
         {
             DBG("FCPE pitch detector loaded successfully");
             useFCPE = true;
@@ -88,6 +94,7 @@ MainComponent::MainComponent(bool enableAudioDevice)
 #else
     addAndMakeVisible(titleBar);
     menuBar.setModel(this);
+    menuBar.setLookAndFeel(&menuBarLookAndFeel);
     addAndMakeVisible(menuBar);
 #endif
     addAndMakeVisible(toolbar);
@@ -205,6 +212,8 @@ MainComponent::~MainComponent()
 {
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(nullptr);
+#else
+    menuBar.setLookAndFeel(nullptr);
 #endif
 
     if (enableAudioDeviceFlag)

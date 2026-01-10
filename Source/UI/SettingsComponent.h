@@ -44,6 +44,7 @@ public:
 
 private:
     void updateDeviceList();
+    void updateGPUDeviceList(const juce::String& deviceType);
     void updateAudioDeviceTypes();
     void updateAudioOutputDevices();
     void updateSampleRates();

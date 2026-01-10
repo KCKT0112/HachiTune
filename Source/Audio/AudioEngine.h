@@ -41,6 +41,7 @@ public:
     
     void setPositionCallback(PositionCallback callback) { positionCallback = std::move(callback); }
     void setFinishCallback(FinishCallback callback) { finishCallback = std::move(callback); }
+    void clearCallbacks() { positionCallback = nullptr; finishCallback = nullptr; }
     
     // Audio device management
     juce::AudioDeviceManager& getDeviceManager() { return deviceManager; }

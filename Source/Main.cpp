@@ -59,23 +59,43 @@ public:
         MainWindow(juce::String name)
             : DocumentWindow(name,
                             juce::Colour(COLOR_BACKGROUND),
-                            0)  // No JUCE buttons - we use custom title bar
+                            DocumentWindow::allButtons,
+                            false)  // Don't add to desktop yet
         {
-            setUsingNativeTitleBar(false);
-            setTitleBarHeight(0);
-            setContentOwned(new MainComponent(), true);
+            // Ensure window is opaque - this must be set before any transparency-related operations
+            setOpaque(true);
+            
+            // Set content first, ensuring it's also opaque
+            auto* content = new MainComponent();
+            content->setOpaque(true);
+            setContentOwned(content, true);
+
+            // Now set native title bar after content is set
+            setUsingNativeTitleBar(true);
 
             setResizable(true, true);
+            
+            // Ensure window is still opaque before adding to desktop
+            // (some operations might affect opacity state)
+            setOpaque(true);
+            
+            // Now add to desktop after all properties are set
+            addToDesktop();
+            
             centreWithSize(getWidth(), getHeight());
-
             setVisible(true);
 
 #if JUCE_WINDOWS
-            // Enable rounded corners on Windows 11+
+            // Enable dark mode for title bar
             if (auto* peer = getPeer())
             {
                 if (auto hwnd = (HWND)peer->getNativeHandle())
                 {
+                    // Enable immersive dark mode for title bar
+                    constexpr DWORD darkMode = 1;
+                    DwmSetWindowAttribute(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &darkMode, sizeof(darkMode));
+                    
+                    // Enable rounded corners on Windows 11+
                     DWORD preference = 2;  // DWMWCP_ROUND
                     DwmSetWindowAttribute(hwnd, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/,
                                          &preference, sizeof(preference));

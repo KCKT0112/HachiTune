@@ -6,6 +6,10 @@
 #include <onnxruntime_cxx_api.h>
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 //==============================================================================
 // SettingsComponent
 //==============================================================================
@@ -13,6 +17,9 @@
 SettingsComponent::SettingsComponent(juce::AudioDeviceManager* audioDeviceManager)
     : deviceManager(audioDeviceManager), pluginMode(audioDeviceManager == nullptr)
 {
+    // Set component to opaque (required for native title bar)
+    setOpaque(true);
+    
     // Title
     titleLabel.setText(TR("settings.title"), juce::dontSendNotification);
     titleLabel.setFont(juce::Font(20.0f, juce::Font::bold));
@@ -47,9 +54,7 @@ SettingsComponent::SettingsComponent(juce::AudioDeviceManager* audioDeviceManage
     gpuDeviceLabel.setColour(juce::Label::textColourId, juce::Colours::white);
     addAndMakeVisible(gpuDeviceLabel);
 
-    for (int i = 0; i < 8; ++i)
-        gpuDeviceComboBox.addItem("GPU " + juce::String(i), i + 1);
-    gpuDeviceComboBox.setSelectedId(1, juce::dontSendNotification);
+    // GPU device list will be populated dynamically based on available devices
     gpuDeviceComboBox.addListener(this);
     addAndMakeVisible(gpuDeviceComboBox);
     gpuDeviceLabel.setVisible(false);
@@ -228,6 +233,11 @@ void SettingsComponent::comboBoxChanged(juce::ComboBox* comboBox)
 
         // Show/hide GPU device selector based on device type
         bool isGPU = (currentDevice != "CPU");
+        if (isGPU)
+        {
+            // Update GPU device list for the selected device type
+            updateGPUDeviceList(currentDevice);
+        }
         gpuDeviceLabel.setVisible(isGPU);
         gpuDeviceComboBox.setVisible(isGPU);
         resized();
@@ -300,6 +310,21 @@ void SettingsComponent::updateDeviceList()
     auto devices = getAvailableDevices();
     int selectedIndex = 0;
     
+    // Auto-select GPU provider if available and current is still default CPU
+    if (currentDevice == "CPU")
+    {
+        for (int i = 0; i < devices.size(); ++i)
+        {
+            if (devices[i] == "CUDA" || devices[i] == "DirectML")
+            {
+                selectedIndex = i;
+                currentDevice = devices[i];
+                DBG("Auto-selecting GPU device: " + currentDevice);
+                break;
+            }
+        }
+    }
+    
     for (int i = 0; i < devices.size(); ++i)
     {
         deviceComboBox.addItem(devices[i], i + 1);
@@ -313,6 +338,159 @@ void SettingsComponent::updateDeviceList()
     comboBoxChanged(&deviceComboBox);
 }
 
+void SettingsComponent::updateGPUDeviceList(const juce::String& deviceType)
+{
+    gpuDeviceComboBox.clear();
+    
+    if (deviceType == "CPU")
+    {
+        // No GPU devices for CPU
+        return;
+    }
+    
+#ifdef HAVE_ONNXRUNTIME
+    if (deviceType == "CUDA")
+    {
+#ifdef USE_CUDA
+        // Try to detect CUDA devices using CUDA Runtime API if available
+        int deviceCount = 0;
+        
+        // Try to detect CUDA devices by attempting to create CUDA provider sessions
+        // This is the most reliable method without requiring CUDA SDK headers
+        try {
+            Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "PitchEditor");
+            
+            // Try up to 8 devices (typical max for consumer systems)
+            for (int deviceId = 0; deviceId < 8; ++deviceId)
+            {
+                try {
+                    Ort::SessionOptions testOptions;
+                    OrtCUDAProviderOptions cudaOptions{};
+                    cudaOptions.device_id = deviceId;
+                    testOptions.AppendExecutionProvider_CUDA(cudaOptions);
+                    
+                    // If we can add the provider without exception, the device likely exists
+                    // Note: We can't get device name without CUDA SDK, so use device ID
+                    gpuDeviceComboBox.addItem("GPU " + juce::String(deviceId) + " (CUDA)", deviceId + 1);
+                    deviceCount++;
+                }
+                catch (const Ort::Exception&)
+                {
+                    // Device doesn't exist or not accessible, stop here
+                    break;
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            DBG("Failed to detect CUDA devices: " + juce::String(e.what()));
+        }
+        
+        // Fallback: Try to load CUDA runtime library directly (Windows only)
+#ifdef _WIN32
+        if (deviceCount == 0)
+        {
+            // Try common CUDA runtime DLL names
+            const char* cudaDllNames[] = {
+                "cudart64_12.dll",  // CUDA 12.x
+                "cudart64_11.dll",  // CUDA 11.x
+                "cudart64_10.dll",  // CUDA 10.x
+                "cudart64.dll"      // Generic
+            };
+            
+            HMODULE cudaLib = nullptr;
+            for (const char* dllName : cudaDllNames)
+            {
+                cudaLib = LoadLibraryA(dllName);
+                if (cudaLib)
+                    break;
+            }
+            
+            if (cudaLib)
+            {
+                typedef int (*cudaGetDeviceCountFunc)(int*);
+                auto cudaGetDeviceCount = (cudaGetDeviceCountFunc)GetProcAddress(cudaLib, "cudaGetDeviceCount");
+                if (cudaGetDeviceCount)
+                {
+                    if (cudaGetDeviceCount(&deviceCount) == 0 && deviceCount > 0)
+                    {
+                        // Get device names
+                        typedef int (*cudaGetDevicePropertiesFunc)(void*, int);
+                        typedef int (*cudaDeviceGetNameFunc)(char*, int, int);
+                        auto cudaGetDeviceProperties = (cudaGetDevicePropertiesFunc)GetProcAddress(cudaLib, "cudaGetDeviceProperties");
+                        auto cudaDeviceGetName = (cudaDeviceGetNameFunc)GetProcAddress(cudaLib, "cudaDeviceGetName");
+                        
+                        for (int deviceId = 0; deviceId < deviceCount; ++deviceId)
+                        {
+                            juce::String deviceName = "GPU " + juce::String(deviceId);
+                            
+                            // Try to get device name
+                            if (cudaDeviceGetName)
+                            {
+                                char name[256];
+                                if (cudaDeviceGetName(name, 256, deviceId) == 0)
+                                {
+                                    deviceName = juce::String(name) + " (GPU " + juce::String(deviceId) + ")";
+                                }
+                            }
+                            
+                            gpuDeviceComboBox.addItem(deviceName, deviceId + 1);
+                        }
+                    }
+                }
+                FreeLibrary(cudaLib);
+            }
+        }
+#endif
+        
+        // If still no devices found, add default
+        if (gpuDeviceComboBox.getNumItems() == 0)
+        {
+            gpuDeviceComboBox.addItem("GPU 0 (CUDA)", 1);
+            DBG("No CUDA devices detected, using default GPU 0");
+        }
+#else
+        // CUDA not compiled in, but provider is available
+        // This shouldn't happen, but add default option
+        gpuDeviceComboBox.addItem("GPU 0 (CUDA)", 1);
+        DBG("CUDA provider available but USE_CUDA not defined");
+#endif
+    }
+    else if (deviceType == "DirectML")
+    {
+#ifdef USE_DIRECTML
+        // DirectML: Most systems have 1 GPU, but we'll check up to 4
+        // DirectML doesn't provide easy enumeration, so we'll use device IDs
+        // In practice, DirectML usually uses device 0
+        for (int deviceId = 0; deviceId < 4; ++deviceId)
+        {
+            gpuDeviceComboBox.addItem("GPU " + juce::String(deviceId) + " (DirectML)", deviceId + 1);
+        }
+#else
+        // DirectML not compiled in
+        gpuDeviceComboBox.addItem("GPU 0 (DirectML)", 1);
+        DBG("DirectML provider available but USE_DIRECTML not defined");
+#endif
+    }
+    else
+    {
+        // Other GPU providers (CoreML, TensorRT) - use default device
+        gpuDeviceComboBox.addItem("Default GPU", 1);
+    }
+    
+    // Set default selection
+    if (gpuDeviceComboBox.getNumItems() > 0)
+    {
+        // Try to restore saved selection, or use first device
+        int savedId = gpuDeviceId + 1;
+        if (savedId > 0 && savedId <= gpuDeviceComboBox.getNumItems())
+            gpuDeviceComboBox.setSelectedId(savedId, juce::dontSendNotification);
+        else
+            gpuDeviceComboBox.setSelectedId(1, juce::dontSendNotification);
+    }
+#endif
+}
+
 juce::StringArray SettingsComponent::getAvailableDevices()
 {
     juce::StringArray devices;
@@ -321,47 +499,74 @@ juce::StringArray SettingsComponent::getAvailableDevices()
     devices.add("CPU");
     
 #ifdef HAVE_ONNXRUNTIME
-    // Get providers that are compiled into the ONNX Runtime library
-    auto availableProviders = Ort::GetAvailableProviders();
-    
-    // Check which providers are available
-    bool hasCuda = false, hasDml = false, hasCoreML = false, hasTensorRT = false;
-    
-    DBG("Available ONNX Runtime providers:");
-    for (const auto& provider : availableProviders)
-    {
-        DBG("  - " + juce::String(provider));
+    try {
+        // Get providers that are compiled into the ONNX Runtime library
+        auto availableProviders = Ort::GetAvailableProviders();
         
-        if (provider == "CUDAExecutionProvider")
-            hasCuda = true;
-        else if (provider == "DmlExecutionProvider")
-            hasDml = true;
-        else if (provider == "CoreMLExecutionProvider")
-            hasCoreML = true;
-        else if (provider == "TensorrtExecutionProvider")
-            hasTensorRT = true;
+        // Check which providers are available
+        bool hasCuda = false, hasDml = false, hasCoreML = false, hasTensorRT = false;
+        
+        DBG("=== ONNX Runtime Provider Detection ===");
+        DBG("Total providers found: " + juce::String(availableProviders.size()));
+        DBG("Available ONNX Runtime providers:");
+        for (const auto& provider : availableProviders)
+        {
+            juce::String providerStr(provider);
+            DBG("  - " + providerStr);
+            
+            if (providerStr == "CUDAExecutionProvider")
+                hasCuda = true;
+            else if (providerStr == "DmlExecutionProvider")
+                hasDml = true;
+            else if (providerStr == "CoreMLExecutionProvider")
+                hasCoreML = true;
+            else if (providerStr == "TensorrtExecutionProvider")
+                hasTensorRT = true;
+        }
+        
+        // Add available GPU providers
+        if (hasCuda)
+        {
+            devices.add("CUDA");
+            DBG("CUDA provider: ENABLED");
+        }
+        if (hasDml)
+        {
+            devices.add("DirectML");
+            DBG("DirectML provider: ENABLED");
+        }
+        if (hasCoreML)
+        {
+            devices.add("CoreML");
+            DBG("CoreML provider: ENABLED");
+        }
+        if (hasTensorRT)
+        {
+            devices.add("TensorRT");
+            DBG("TensorRT provider: ENABLED");
+        }
+        
+        // If no GPU providers found, show info about how to enable them
+        if (!hasCuda && !hasDml && !hasCoreML && !hasTensorRT)
+        {
+            DBG("WARNING: No GPU execution providers available in this ONNX Runtime build.");
+            DBG("This appears to be a CPU-only build of ONNX Runtime.");
+            DBG("To enable GPU acceleration:");
+            DBG("  - Windows DirectML: Use onnxruntime-directml package");
+            DBG("  - NVIDIA CUDA: Use onnxruntime-gpu package (requires CUDA toolkit)");
+        }
     }
-    
-    // Add available GPU providers
-    if (hasCuda)
-        devices.add("CUDA");
-    if (hasDml)
-        devices.add("DirectML");
-    if (hasCoreML)
-        devices.add("CoreML");
-    if (hasTensorRT)
-        devices.add("TensorRT");
-    
-    // If no GPU providers found, show info about how to enable them
-    if (!hasCuda && !hasDml && !hasCoreML && !hasTensorRT)
+    catch (const std::exception& e)
     {
-        DBG("No GPU execution providers available in this ONNX Runtime build.");
-        DBG("To enable GPU acceleration:");
-        DBG("  - Windows DirectML: Download onnxruntime-directml package");
-        DBG("  - NVIDIA CUDA: Download onnxruntime-gpu package");
+        DBG("ERROR: Failed to get ONNX Runtime providers: " + juce::String(e.what()));
+        DBG("Falling back to CPU-only mode.");
     }
+#else
+    DBG("WARNING: HAVE_ONNXRUNTIME not defined - only CPU available");
+    DBG("To enable GPU support, ensure ONNX Runtime is properly configured in CMakeLists.txt");
 #endif
     
+    DBG("Final device list: " + devices.joinIntoString(", "));
     return devices;
 }
 
@@ -423,8 +628,13 @@ void SettingsComponent::loadSettings()
     }
 
     // Update GPU device ID and visibility
-    gpuDeviceComboBox.setSelectedId(gpuDeviceId + 1, juce::dontSendNotification);
     bool isGPU = (currentDevice != "CPU");
+    if (isGPU)
+    {
+        // Update GPU device list for the loaded device type
+        updateGPUDeviceList(currentDevice);
+    }
+    gpuDeviceComboBox.setSelectedId(gpuDeviceId + 1, juce::dontSendNotification);
     gpuDeviceLabel.setVisible(isGPU);
     gpuDeviceComboBox.setVisible(isGPU);
 }
@@ -590,10 +800,27 @@ void SettingsComponent::applyAudioSettings()
 SettingsDialog::SettingsDialog(juce::AudioDeviceManager* audioDeviceManager)
     : DialogWindow("Settings", juce::Colour(COLOR_BACKGROUND), true)
 {
+    // Set opaque before any other operations - this must be done first
+    setOpaque(true);
+    
+    // Create and configure content component
     settingsComponent = std::make_unique<SettingsComponent>(audioDeviceManager);
+    
+    // Ensure content component is also opaque before setting it
+    if (settingsComponent)
+        settingsComponent->setOpaque(true);
+    
+    // Set content before native title bar
     setContentOwned(settingsComponent.get(), false);
+    
+    // Now set native title bar after content is set and opaque
     setUsingNativeTitleBar(true);
+    
+    // Set window properties
     setResizable(false, false);
+    
+    // Background color is already set in DialogWindow constructor,
+    // so we don't need to call setBackgroundColour() again
 
     if (audioDeviceManager != nullptr)
         centreWithSize(400, 520);
