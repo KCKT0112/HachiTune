@@ -47,8 +47,8 @@
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/user/pitch_editor_juce.git
-cd pitch_editor_juce
+git clone --recursive https://github.com/KCKT0112/HachiTune.git
+cd HachiTune
 
 # Build
 ./build.sh
