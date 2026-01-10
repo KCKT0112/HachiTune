@@ -1364,10 +1364,20 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent &e,
   if (!e.mods.isCommandDown() && !e.mods.isCtrlDown()) {
     // Over piano keys: vertical zoom
     if (isOverPianoKeys) {
+      // Calculate MIDI note at mouse position before zoom
+      float mouseY = e.y - timelineHeight;
+      float midiAtMouse = (mouseY + scrollY) / pixelsPerSemitone;
+
       float zoomFactor = 1.0f + wheel.deltaY * 0.3f;
       float newPps = pixelsPerSemitone * zoomFactor;
       newPps = juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE, newPps);
       pixelsPerSemitone = newPps;
+
+      // Adjust scroll position to keep MIDI note at mouse position fixed
+      double newScrollY = midiAtMouse * pixelsPerSemitone - mouseY;
+      newScrollY = std::max(0.0, newScrollY);
+      scrollY = newScrollY;
+
       updateScrollBars();
       repaint();
       return;
@@ -1375,10 +1385,20 @@ void PianoRollComponent::mouseWheelMove(const juce::MouseEvent &e,
 
     // Over timeline: horizontal zoom
     if (isOverTimeline) {
+      // Calculate time at mouse position before zoom
+      float mouseX = e.x - pianoKeysWidth;
+      double timeAtMouse = (mouseX + scrollX) / pixelsPerSecond;
+
       float zoomFactor = 1.0f + wheel.deltaY * 0.3f;
       float newPps = pixelsPerSecond * zoomFactor;
       newPps = juce::jlimit(MIN_PIXELS_PER_SECOND, MAX_PIXELS_PER_SECOND, newPps);
       pixelsPerSecond = newPps;
+
+      // Adjust scroll position to keep time at mouse position fixed
+      double newScrollX = timeAtMouse * pixelsPerSecond - mouseX;
+      newScrollX = std::max(0.0, newScrollX);
+      scrollX = newScrollX;
+
       updateScrollBars();
       repaint();
       if (onZoomChanged)

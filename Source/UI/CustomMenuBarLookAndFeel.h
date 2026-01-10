@@ -113,12 +113,16 @@ public:
         }
 
         g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(height * 0.6f));
+        // Use larger DPI-aware font size
+        float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
+        g.setFont(juce::Font(height * 0.75f * scaleFactor));
         g.drawFittedText(itemText, 0, 0, width, height, juce::Justification::centred, 1);
     }
 
     juce::Font getPopupMenuFont() override
     {
-        return juce::Font(14.0f);
+        // Use larger DPI-aware font size
+        float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
+        return juce::Font(16.0f * scaleFactor);
     }
 };

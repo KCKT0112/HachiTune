@@ -826,25 +826,22 @@ SettingsDialog::SettingsDialog(juce::AudioDeviceManager* audioDeviceManager)
 {
     // Set opaque before any other operations - this must be done first
     setOpaque(true);
-    
+
     // Create and configure content component
     settingsComponent = std::make_unique<SettingsComponent>(audioDeviceManager);
-    
+
     // Ensure content component is also opaque before setting it
     if (settingsComponent)
         settingsComponent->setOpaque(true);
-    
+
     // Set content before native title bar
     setContentOwned(settingsComponent.get(), false);
-    
+
     // Now set native title bar after content is set and opaque
     setUsingNativeTitleBar(true);
-    
+
     // Set window properties
     setResizable(false, false);
-    
-    // Background color is already set in DialogWindow constructor,
-    // so we don't need to call setBackgroundColour() again
 
     if (audioDeviceManager != nullptr)
         centreWithSize(400, 520);
@@ -855,4 +852,9 @@ SettingsDialog::SettingsDialog(juce::AudioDeviceManager* audioDeviceManager)
 void SettingsDialog::closeButtonPressed()
 {
     setVisible(false);
+}
+
+void SettingsDialog::paint(juce::Graphics& g)
+{
+    g.fillAll(juce::Colour(COLOR_BACKGROUND));
 }

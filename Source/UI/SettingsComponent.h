@@ -95,6 +95,7 @@ public:
     ~SettingsDialog() override = default;
 
     void closeButtonPressed() override;
+    void paint(juce::Graphics& g) override;
 
     SettingsComponent* getSettingsComponent() { return settingsComponent.get(); }
 
