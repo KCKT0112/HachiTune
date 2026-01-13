@@ -16,7 +16,6 @@ ToolbarComponent::ToolbarComponent()
 
     // Plugin mode buttons (hidden by default)
     addChildComponent(reanalyzeButton);
-    addChildComponent(renderButton);
 
     goToStartButton.addListener(this);
     playButton.addListener(this);
@@ -26,7 +25,6 @@ ToolbarComponent::ToolbarComponent()
     drawModeButton.addListener(this);
     followButton.addListener(this);
     reanalyzeButton.addListener(this);
-    renderButton.addListener(this);
 
     // Set localized text
     playButton.setButtonText(TR("toolbar.play"));
@@ -35,14 +33,13 @@ ToolbarComponent::ToolbarComponent()
     drawModeButton.setButtonText(TR("toolbar.draw"));
     followButton.setButtonText(TR("toolbar.follow"));
     reanalyzeButton.setButtonText(TR("toolbar.reanalyze"));
-    renderButton.setButtonText(TR("toolbar.render"));
     zoomLabel.setText(TR("toolbar.zoom"), juce::dontSendNotification);
 
     // Style buttons
     auto buttonColor = juce::Colour(0xFF3D3D47);
     auto textColor = juce::Colours::white;
 
-    for (auto* btn : { &goToStartButton, &playButton, &stopButton, &goToEndButton, &selectModeButton, &drawModeButton, &reanalyzeButton, &renderButton })
+    for (auto* btn : { &goToStartButton, &playButton, &stopButton, &goToEndButton, &selectModeButton, &drawModeButton, &reanalyzeButton })
     {
         btn->setColour(juce::TextButton::buttonColourId, buttonColor);
         btn->setColour(juce::TextButton::textColourOffId, textColor);
@@ -87,6 +84,12 @@ ToolbarComponent::ToolbarComponent()
     progressLabel.setJustificationType(juce::Justification::centredLeft);
     progressBar.setColour(juce::ProgressBar::foregroundColourId, juce::Colour(COLOR_PRIMARY));
     progressBar.setColour(juce::ProgressBar::backgroundColourId, juce::Colour(0xFF2D2D37));
+    
+    // Status label (hidden by default)
+    addChildComponent(statusLabel);
+    statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    statusLabel.setJustificationType(juce::Justification::centredLeft);
+    statusLabel.setFont(juce::Font(11.0f));
 }
 
 ToolbarComponent::~ToolbarComponent()
@@ -111,8 +114,6 @@ void ToolbarComponent::resized()
     if (pluginMode)
     {
         reanalyzeButton.setBounds(bounds.removeFromLeft(100));
-        bounds.removeFromLeft(4);
-        renderButton.setBounds(bounds.removeFromLeft(80));
     }
     else
     {
@@ -143,6 +144,13 @@ void ToolbarComponent::resized()
     bounds.removeFromRight(4);
     zoomLabel.setBounds(bounds.removeFromRight(50));
 
+    // Status label (shown when not showing progress)
+    if (showingStatus && !showingProgress)
+    {
+        statusLabel.setBounds(bounds.removeFromLeft(120));
+        bounds.removeFromLeft(10);
+    }
+    
     // Progress bar (use the remaining middle area so it won't cover buttons)
     if (showingProgress)
     {
@@ -178,8 +186,6 @@ void ToolbarComponent::buttonClicked(juce::Button* button)
         onStop();
     else if (button == &reanalyzeButton && onReanalyze)
         onReanalyze();
-    else if (button == &renderButton && onRender)
-        onRender();
     else if (button == &selectModeButton)
     {
         setEditMode(EditMode::Select);
@@ -271,6 +277,23 @@ void ToolbarComponent::setProgress(float progress)
         progressValue = static_cast<double>(juce::jlimit(0.0f, 1.0f, progress));
 }
 
+void ToolbarComponent::setStatusMessage(const juce::String& message)
+{
+    if (message.isEmpty())
+    {
+        showingStatus = false;
+        statusLabel.setVisible(false);
+    }
+    else
+    {
+        showingStatus = true;
+        statusLabel.setText(message, juce::dontSendNotification);
+        statusLabel.setVisible(true);
+    }
+    resized();
+    repaint();
+}
+
 void ToolbarComponent::updateTimeDisplay()
 {
     timeLabel.setText(formatTime(currentTime) + " / " + formatTime(totalTime),
@@ -320,7 +343,6 @@ void ToolbarComponent::setPluginMode(bool isPlugin)
     stopButton.setVisible(!isPlugin);
     goToEndButton.setVisible(!isPlugin);
     reanalyzeButton.setVisible(isPlugin);
-    renderButton.setVisible(isPlugin);
 
     // In plugin mode, hide follow button (host controls playback)
     followButton.setVisible(!isPlugin);

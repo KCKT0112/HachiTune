@@ -1,117 +1,112 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
 #include "../UI/MainComponent.h"
+#include "PluginEditor.h"
 
 PitchEditorAudioProcessor::PitchEditorAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
-    : AudioProcessor (BusesProperties()
-        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-        .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+    : AudioProcessor(BusesProperties()
+          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+          .withOutput("Output", juce::AudioChannelSet::stereo(), true))
 #endif
 {
 }
 
 PitchEditorAudioProcessor::~PitchEditorAudioProcessor() = default;
 
-const juce::String PitchEditorAudioProcessor::getName() const
-{
+const juce::String PitchEditorAudioProcessor::getName() const {
     return JucePlugin_Name;
 }
 
-bool PitchEditorAudioProcessor::acceptsMidi() const
-{
-   #if JucePlugin_WantsMidiInput
+bool PitchEditorAudioProcessor::acceptsMidi() const {
+#if JucePlugin_WantsMidiInput
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
-bool PitchEditorAudioProcessor::producesMidi() const
-{
-   #if JucePlugin_ProducesMidiOutput
+bool PitchEditorAudioProcessor::producesMidi() const {
+#if JucePlugin_ProducesMidiOutput
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
-bool PitchEditorAudioProcessor::isMidiEffect() const
-{
-   #if JucePlugin_IsMidiEffect
+bool PitchEditorAudioProcessor::isMidiEffect() const {
+#if JucePlugin_IsMidiEffect
     return true;
-   #else
+#else
     return false;
-   #endif
+#endif
 }
 
-double PitchEditorAudioProcessor::getTailLengthSeconds() const
-{
-    return 0.0;
-}
-
-int PitchEditorAudioProcessor::getNumPrograms()
-{
-    return 1;
-}
-
-int PitchEditorAudioProcessor::getCurrentProgram()
-{
-    return 0;
-}
-
-void PitchEditorAudioProcessor::setCurrentProgram (int /*index*/)
-{
-}
-
-const juce::String PitchEditorAudioProcessor::getProgramName (int /*index*/)
-{
-    return {};
-}
-
-void PitchEditorAudioProcessor::changeProgramName (int /*index*/, const juce::String& /*newName*/)
-{
-}
-
-void PitchEditorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
-{
+void PitchEditorAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     hostSampleRate = sampleRate;
+    realtimeProcessor.prepareToPlay(sampleRate, samplesPerBlock);
 
 #if JucePlugin_Enable_ARA
-    // ARA mode: let ARA handle audio
-    prepareToPlayForARA(sampleRate, samplesPerBlock, getMainBusNumOutputChannels(), getProcessingPrecision());
-#else
-    juce::ignoreUnused(samplesPerBlock);
+    prepareToPlayForARA(sampleRate, samplesPerBlock,
+                        getMainBusNumOutputChannels(), getProcessingPrecision());
 #endif
 
-    // Pre-allocate capture buffer for 5 minutes (non-ARA mode)
-    maxCaptureLength = static_cast<int>(sampleRate * 300);
-    capturedBuffer.setSize(2, maxCaptureLength);
-    capturedBuffer.clear();
+    // Pre-allocate capture buffer for non-ARA mode
+    int maxSamples = static_cast<int>(sampleRate * MAX_CAPTURE_SECONDS);
+    captureBuffer.setSize(getMainBusNumOutputChannels(), maxSamples);
+    captureBuffer.clear();
     capturePosition = 0;
+    captureState = CaptureState::WaitingForAudio;
 }
 
-void PitchEditorAudioProcessor::releaseResources()
-{
+void PitchEditorAudioProcessor::releaseResources() {
 #if JucePlugin_Enable_ARA
     releaseResourcesForARA();
 #endif
 }
 
-#if ! JucePlugin_PreferredChannelConfigurations
-bool PitchEditorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
-{
+#if !JucePlugin_PreferredChannelConfigurations
+bool PitchEditorAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
         return false;
-
-    const auto out = layouts.getMainOutputChannelSet();
+    auto out = layouts.getMainOutputChannelSet();
     return out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo();
 }
 #endif
 
-void PitchEditorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
-{
-    juce::ignoreUnused (midiMessages);
+bool PitchEditorAudioProcessor::isARAModeActive() const {
+#if JucePlugin_Enable_ARA
+    if (auto* editor = getActiveEditor()) {
+        if (auto* araEditor = dynamic_cast<juce::AudioProcessorEditorARAExtension*>(editor)) {
+            if (auto* editorView = araEditor->getARAEditorView()) {
+                return editorView->getDocumentController() != nullptr;
+            }
+        }
+    }
+#endif
+    return false;
+}
+
+HostCompatibility::HostInfo PitchEditorAudioProcessor::getHostInfo() const {
+    return HostCompatibility::detectHost(const_cast<PitchEditorAudioProcessor*>(this));
+}
+
+juce::String PitchEditorAudioProcessor::getHostStatusMessage() const {
+    auto hostInfo = getHostInfo();
+    bool araActive = isARAModeActive();
+
+    if (hostInfo.type != HostCompatibility::HostType::Unknown) {
+        if (araActive)
+            return hostInfo.name + " - ARA Mode";
+        if (hostInfo.supportsARA)
+            return hostInfo.name + " - Non-ARA (ARA Available)";
+        return hostInfo.name + " - Non-ARA Mode";
+    }
+    return araActive ? "ARA Mode" : "Non-ARA Mode";
+}
+
+void PitchEditorAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
+                                              juce::MidiBuffer& midiMessages) {
+    juce::ignoreUnused(midiMessages);
     juce::ScopedNoDenormals noDenormals;
 
 #if JucePlugin_Enable_ARA
@@ -120,104 +115,144 @@ void PitchEditorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         return;
 #endif
 
+    // Non-ARA mode
+    juce::AudioPlayHead::PositionInfo posInfo;
+    if (auto* playHead = getPlayHead()) {
+        if (auto info = playHead->getPosition())
+            posInfo = *info;
+    }
+
+    processNonARAMode(buffer, posInfo);
+}
+
+void PitchEditorAudioProcessor::processNonARAMode(juce::AudioBuffer<float>& buffer,
+                                                   const juce::AudioPlayHead::PositionInfo& posInfo) {
     const int numSamples = buffer.getNumSamples();
     const int numChannels = buffer.getNumChannels();
 
-    // Capture mode: accumulate input audio
-    if (capturing)
-    {
-        for (int ch = 0; ch < numChannels && ch < capturedBuffer.getNumChannels(); ++ch)
-        {
-            if (capturePosition + numSamples <= capturedBuffer.getNumSamples())
-                capturedBuffer.copyFrom(ch, capturePosition, buffer, ch, 0, numSamples);
-        }
-        capturePosition += numSamples;
+    // Check if we have analyzed project ready for real-time processing
+    bool hasProject = mainComponent && mainComponent->getProject() &&
+                      mainComponent->getProject()->getAudioData().waveform.getNumSamples() > 0 &&
+                      !mainComponent->getProject()->getAudioData().f0.empty();
 
-        // Stop capturing if buffer is full
-        if (capturePosition >= maxCaptureLength)
-            capturing = false;
+    if (hasProject && realtimeProcessor.isReady()) {
+        // Real-time pitch correction mode
+        juce::AudioBuffer<float> outputBuffer(numChannels, numSamples);
+        if (realtimeProcessor.processBlock(buffer, outputBuffer, &posInfo)) {
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.copyFrom(ch, 0, outputBuffer, ch, 0, numSamples);
+        }
+        return;
     }
 
-    // Playback mode: output processed audio instead of input
-    if (processedReady && playbackPosition < processedBuffer.getNumSamples())
-    {
-        const int samplesToPlay = std::min(numSamples,
-            processedBuffer.getNumSamples() - playbackPosition);
+    // Capture mode
+    CaptureState state = captureState.load();
 
-        for (int ch = 0; ch < numChannels && ch < processedBuffer.getNumChannels(); ++ch)
-        {
-            buffer.copyFrom(ch, 0, processedBuffer, ch, playbackPosition, samplesToPlay);
-            // Clear remaining samples if processed audio is shorter
-            if (samplesToPlay < numSamples)
-                buffer.clear(ch, samplesToPlay, numSamples - samplesToPlay);
+    if (state == CaptureState::WaitingForAudio) {
+        // Detect audio input
+        float maxLevel = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch) {
+            auto* data = buffer.getReadPointer(ch);
+            for (int i = 0; i < numSamples; ++i)
+                maxLevel = std::max(maxLevel, std::abs(data[i]));
         }
 
-        playbackPosition += numSamples;
+        if (maxLevel > AUDIO_THRESHOLD) {
+            captureState = CaptureState::Capturing;
+            capturePosition = 0;
+            state = CaptureState::Capturing;
+        }
     }
-    // else: passthrough (input already in buffer)
+
+    if (state == CaptureState::Capturing) {
+        // Capture audio
+        int spaceLeft = captureBuffer.getNumSamples() - capturePosition;
+        int toCopy = std::min(numSamples, spaceLeft);
+
+        for (int ch = 0; ch < std::min(numChannels, captureBuffer.getNumChannels()); ++ch)
+            captureBuffer.copyFrom(ch, capturePosition, buffer, ch, 0, toCopy);
+
+        capturePosition += toCopy;
+
+        // Auto-stop after 30 seconds or buffer full
+        int autoStopSamples = static_cast<int>(hostSampleRate * 30);
+        if (capturePosition >= autoStopSamples || capturePosition >= captureBuffer.getNumSamples())
+            finishCapture();
+    }
+
+    // Passthrough during capture
 }
 
-bool PitchEditorAudioProcessor::hasEditor() const
-{
-    return true;
+void PitchEditorAudioProcessor::finishCapture() {
+    if (capturePosition < static_cast<int>(hostSampleRate * 0.5))
+        return; // Too short
+
+    captureState = CaptureState::Complete;
+
+    // Trim buffer
+    juce::AudioBuffer<float> trimmed;
+    trimmed.setSize(captureBuffer.getNumChannels(), capturePosition);
+    for (int ch = 0; ch < captureBuffer.getNumChannels(); ++ch)
+        trimmed.copyFrom(ch, 0, captureBuffer, ch, 0, capturePosition);
+
+    // Send to MainComponent for analysis
+    double sr = hostSampleRate;
+    juce::MessageManager::callAsync([this, trimmed, sr]() {
+        if (mainComponent) {
+            mainComponent->getToolbar().setStatusMessage("Analyzing...");
+            mainComponent->setHostAudio(trimmed, sr);
+        }
+    });
 }
 
-juce::AudioProcessorEditor* PitchEditorAudioProcessor::createEditor()
-{
-    return new PitchEditorAudioProcessorEditor (*this);
+void PitchEditorAudioProcessor::startCapture() {
+    captureBuffer.clear();
+    capturePosition = 0;
+    captureState = CaptureState::Capturing;
 }
 
-void PitchEditorAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
-{
-    if (mainComponent && mainComponent->getProject())
-    {
-        auto xml = mainComponent->getProject()->toXml();
-        if (xml)
+void PitchEditorAudioProcessor::stopCapture() {
+    if (captureState == CaptureState::Capturing)
+        finishCapture();
+}
+
+void PitchEditorAudioProcessor::setMainComponent(MainComponent* mc) {
+    mainComponent = mc;
+    if (mc) {
+        realtimeProcessor.setProject(mc->getProject());
+        realtimeProcessor.setVocoder(mc->getVocoder());
+    } else {
+        realtimeProcessor.setProject(nullptr);
+        realtimeProcessor.setVocoder(nullptr);
+    }
+}
+
+juce::AudioProcessorEditor* PitchEditorAudioProcessor::createEditor() {
+    return new PitchEditorAudioProcessorEditor(*this);
+}
+
+void PitchEditorAudioProcessor::getStateInformation(juce::MemoryBlock& destData) {
+    if (mainComponent && mainComponent->getProject()) {
+        if (auto xml = mainComponent->getProject()->toXml())
             copyXmlToBinary(*xml, destData);
     }
 }
 
-void PitchEditorAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
-{
-    auto xml = getXmlFromBinary(data, sizeInBytes);
-    if (xml && mainComponent && mainComponent->getProject())
-        mainComponent->getProject()->fromXml(*xml);
+void PitchEditorAudioProcessor::setStateInformation(const void* data, int sizeInBytes) {
+    if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
+        if (mainComponent && mainComponent->getProject())
+            mainComponent->getProject()->fromXml(*xml);
+    }
 }
 
-void PitchEditorAudioProcessor::startCapture()
-{
-    capturedBuffer.clear();
-    capturePosition = 0;
-    processedReady = false;
-    playbackPosition = 0;
-    capturing = true;
-}
-
-void PitchEditorAudioProcessor::stopCapture()
-{
-    capturing = false;
-    // Trim buffer to actual captured length
-    if (capturePosition > 0 && capturePosition < capturedBuffer.getNumSamples())
-        capturedBuffer.setSize(capturedBuffer.getNumChannels(), capturePosition, true);
-}
-
-void PitchEditorAudioProcessor::setProcessedAudio(const juce::AudioBuffer<float>& buffer)
-{
-    processedBuffer = buffer;
-    playbackPosition = 0;
-    processedReady = true;
-}
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
-{
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
     return new PitchEditorAudioProcessor();
 }
 
 #if JucePlugin_Enable_ARA
 #include "ARADocumentController.h"
 
-const ARA::ARAFactory* JUCE_CALLTYPE createARAFactory()
-{
+const ARA::ARAFactory* JUCE_CALLTYPE createARAFactory() {
     return juce::ARADocumentControllerSpecialisation::createARAFactory<PitchEditorDocumentController>();
 }
 #endif

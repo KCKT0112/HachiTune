@@ -145,6 +145,16 @@ void AudioEngine::changeListenerCallback(juce::ChangeBroadcaster* source)
 
 void AudioEngine::loadWaveform(const juce::AudioBuffer<float>& buffer, int sampleRate)
 {
+    // CRITICAL: Validate this pointer before accessing any member variables
+    // This helps catch cases where the object has been destroyed
+    if (this == nullptr) {
+        DBG("AudioEngine::loadWaveform - ERROR: this pointer is null!");
+        jassertfalse; // This should never happen in valid code
+        return;
+    }
+    
+    DBG("AudioEngine::loadWaveform called - this=" << juce::String::toHexString(reinterpret_cast<uintptr_t>(this)));
+    
     stop();
     currentWaveform = buffer;
     waveformSampleRate = sampleRate;
@@ -182,6 +192,16 @@ void AudioEngine::pause()
 
 void AudioEngine::stop()
 {
+    // CRITICAL: Validate this pointer before accessing any member variables
+    // This helps catch cases where the object has been destroyed
+    if (this == nullptr) {
+        DBG("AudioEngine::stop - ERROR: this pointer is null!");
+        jassertfalse; // This should never happen in valid code
+        return;
+    }
+    
+    DBG("AudioEngine::stop called - this=" << juce::String::toHexString(reinterpret_cast<uintptr_t>(this)));
+    
     playing = false;
     currentPosition.store(0);
     interpolator.reset();

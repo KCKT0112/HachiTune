@@ -8,181 +8,183 @@
 // PitchEditorPlaybackRenderer
 //==============================================================================
 
-void PitchEditorPlaybackRenderer::prepareToPlay(double sampleRateIn, int maximumSamplesPerBlockIn,
-                                                 int numChannelsIn, juce::AudioProcessor::ProcessingPrecision,
-                                                 AlwaysNonRealtime alwaysNonRealtime)
-{
+PitchEditorDocumentController* PitchEditorPlaybackRenderer::getDocController() const {
+    auto* docController = getDocumentController();
+    return juce::ARADocumentControllerSpecialisation::
+        getSpecialisedDocumentController<PitchEditorDocumentController>(docController);
+}
+
+void PitchEditorPlaybackRenderer::prepareToPlay(double sampleRateIn, int maxBlockSize,
+                                                 int numChannelsIn,
+                                                 juce::AudioProcessor::ProcessingPrecision,
+                                                 AlwaysNonRealtime alwaysNonRealtime) {
     sampleRate = sampleRateIn;
     numChannels = numChannelsIn;
-    maximumSamplesPerBlock = maximumSamplesPerBlockIn;
-    tempBuffer = std::make_unique<juce::AudioBuffer<float>>(numChannels, maximumSamplesPerBlock);
-    useBufferedReader = (alwaysNonRealtime == AlwaysNonRealtime::no);
+    tempBuffer = std::make_unique<juce::AudioBuffer<float>>(numChannels, maxBlockSize);
+
+    bool useBuffered = (alwaysNonRealtime == AlwaysNonRealtime::no);
+    juce::ignoreUnused(useBuffered);
 
     // Create readers for all playback regions
-    for (const auto playbackRegion : getPlaybackRegions())
-    {
-        auto* audioSource = playbackRegion->getAudioModification()->getAudioSource();
-        if (audioSourceReaders.find(audioSource) == audioSourceReaders.end())
-        {
-            audioSourceReaders.emplace(audioSource,
-                std::make_unique<juce::ARAAudioSourceReader>(audioSource));
-        }
+    for (auto* region : getPlaybackRegions()) {
+        auto* source = region->getAudioModification()->getAudioSource();
+        if (readers.find(source) == readers.end())
+            readers.emplace(source, std::make_unique<juce::ARAAudioSourceReader>(source));
     }
 }
 
-void PitchEditorPlaybackRenderer::releaseResources()
-{
-    audioSourceReaders.clear();
+void PitchEditorPlaybackRenderer::releaseResources() {
+    readers.clear();
     tempBuffer.reset();
 }
 
-bool PitchEditorPlaybackRenderer::processBlock(juce::AudioBuffer<float>& buffer,
-                                                juce::AudioProcessor::Realtime realtime,
-                                                const juce::AudioPlayHead::PositionInfo& positionInfo) noexcept
-{
-    const auto numSamples = buffer.getNumSamples();
-    const auto timeInSamples = positionInfo.getTimeInSamples().orFallback(0);
-    const auto isPlaying = positionInfo.getIsPlaying();
+bool PitchEditorPlaybackRenderer::readFromARARegions(juce::AudioBuffer<float>& buffer,
+                                                      juce::int64 timeInSamples,
+                                                      int numSamples) {
+    bool didRender = false;
+    auto blockRange = juce::Range<juce::int64>::withStartAndLength(timeInSamples, numSamples);
 
-    bool success = true;
-    bool didRenderAnyRegion = false;
+    for (auto* region : getPlaybackRegions()) {
+        auto playbackRange = region->getSampleRange(sampleRate,
+            juce::ARAPlaybackRegion::IncludeHeadAndTail::no);
+        auto renderRange = blockRange.getIntersectionWith(playbackRange);
 
-    if (isPlaying)
-    {
-        const auto blockRange = juce::Range<juce::int64>::withStartAndLength(timeInSamples, numSamples);
+        if (renderRange.isEmpty())
+            continue;
 
-        for (const auto& playbackRegion : getPlaybackRegions())
-        {
-            const auto playbackSampleRange = playbackRegion->getSampleRange(sampleRate,
-                juce::ARAPlaybackRegion::IncludeHeadAndTail::no);
-            auto renderRange = blockRange.getIntersectionWith(playbackSampleRange);
+        // Get modification range
+        juce::Range<juce::int64> modRange{
+            region->getStartInAudioModificationSamples(),
+            region->getEndInAudioModificationSamples()
+        };
+        auto modOffset = modRange.getStart() - playbackRange.getStart();
+        renderRange = renderRange.getIntersectionWith(modRange.movedToStartAt(playbackRange.getStart()));
 
-            if (renderRange.isEmpty())
-                continue;
+        if (renderRange.isEmpty())
+            continue;
 
-            // Get modification sample range
-            juce::Range<juce::int64> modificationSampleRange{
-                playbackRegion->getStartInAudioModificationSamples(),
-                playbackRegion->getEndInAudioModificationSamples()
-            };
-            const auto modificationSampleOffset = modificationSampleRange.getStart() - playbackSampleRange.getStart();
+        // Get reader
+        auto* source = region->getAudioModification()->getAudioSource();
+        auto it = readers.find(const_cast<juce::ARAAudioSource*>(source));
+        if (it == readers.end())
+            continue;
 
-            renderRange = renderRange.getIntersectionWith(
-                modificationSampleRange.movedToStartAt(playbackSampleRange.getStart()));
+        int samplesToRead = static_cast<int>(renderRange.getLength());
+        int bufferOffset = static_cast<int>(renderRange.getStart() - blockRange.getStart());
+        auto sourceStart = renderRange.getStart() + modOffset;
 
-            if (renderRange.isEmpty())
-                continue;
+        auto& readBuffer = didRender ? *tempBuffer : buffer;
+        if (!it->second->read(&readBuffer, bufferOffset, samplesToRead, sourceStart, true, true))
+            continue;
 
-            // Get audio source reader
-            const auto* audioSource = playbackRegion->getAudioModification()->getAudioSource();
-            const auto readerIt = audioSourceReaders.find(const_cast<juce::ARAAudioSource*>(audioSource));
-
-            if (readerIt == audioSourceReaders.end())
-            {
-                success = false;
-                continue;
-            }
-
-            auto& reader = readerIt->second;
-
-            // Calculate buffer offsets
-            const int numSamplesToRead = static_cast<int>(renderRange.getLength());
-            const int startInBuffer = static_cast<int>(renderRange.getStart() - blockRange.getStart());
-            auto startInSource = renderRange.getStart() + modificationSampleOffset;
-
-            // Read samples
-            auto& readBuffer = didRenderAnyRegion ? *tempBuffer : buffer;
-
-            if (!reader->read(&readBuffer, startInBuffer, numSamplesToRead, startInSource, true, true))
-            {
-                success = false;
-                continue;
-            }
-
-            // Mix if needed
-            if (didRenderAnyRegion)
-            {
-                for (int c = 0; c < numChannels; ++c)
-                    buffer.addFrom(c, startInBuffer, *tempBuffer, c, startInBuffer, numSamplesToRead);
-            }
-            else
-            {
-                // Clear excess
-                if (startInBuffer != 0)
-                    buffer.clear(0, startInBuffer);
-
-                const int endInBuffer = startInBuffer + numSamplesToRead;
-                const int remainingSamples = numSamples - endInBuffer;
-                if (remainingSamples != 0)
-                    buffer.clear(endInBuffer, remainingSamples);
-
-                didRenderAnyRegion = true;
-            }
+        if (didRender) {
+            // Mix with existing
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.addFrom(ch, bufferOffset, *tempBuffer, ch, bufferOffset, samplesToRead);
+        } else {
+            // Clear areas outside render range
+            if (bufferOffset > 0)
+                buffer.clear(0, bufferOffset);
+            int endOffset = bufferOffset + samplesToRead;
+            if (endOffset < numSamples)
+                buffer.clear(endOffset, numSamples - endOffset);
+            didRender = true;
         }
     }
 
-    if (!didRenderAnyRegion)
-        buffer.clear();
+    return didRender;
+}
 
-    return success;
+bool PitchEditorPlaybackRenderer::processBlock(juce::AudioBuffer<float>& buffer,
+                                                juce::AudioProcessor::Realtime,
+                                                const juce::AudioPlayHead::PositionInfo& posInfo) noexcept {
+    auto timeInSamples = posInfo.getTimeInSamples().orFallback(0);
+    bool isPlaying = posInfo.getIsPlaying();
+    int numSamples = buffer.getNumSamples();
+
+    if (!isPlaying) {
+        buffer.clear();
+        return true;
+    }
+
+    // Read from ARA regions
+    juce::AudioBuffer<float> inputBuffer(buffer.getNumChannels(), numSamples);
+    bool didRender = readFromARARegions(inputBuffer, timeInSamples, numSamples);
+
+    if (!didRender) {
+        buffer.clear();
+        return true;
+    }
+
+    // Get processor from document controller (dynamic lookup)
+    auto* docCtrl = getDocController();
+    auto* realtimeProcessor = docCtrl ? docCtrl->getRealtimeProcessor() : nullptr;
+
+    // Apply pitch correction if processor available and ready
+    if (realtimeProcessor && realtimeProcessor->isReady()) {
+        if (realtimeProcessor->processBlock(inputBuffer, buffer, &posInfo)) {
+            return true;
+        } else {
+            DBG("ARA processBlock: realtimeProcessor->processBlock returned false (passthrough)");
+        }
+    } else {
+        // Log why we're not using the processor
+        if (!realtimeProcessor) {
+            DBG("ARA processBlock: realtimeProcessor is null");
+        } else if (!realtimeProcessor->isReady()) {
+            DBG("ARA processBlock: realtimeProcessor not ready");
+        }
+    }
+
+    // Fallback: copy input to output
+    buffer.makeCopyOf(inputBuffer);
+    return true;
 }
 
 //==============================================================================
 // PitchEditorDocumentController
 //==============================================================================
 
-void PitchEditorDocumentController::didAddAudioSourceToDocument(juce::ARADocument* /*doc*/,
-                                                                  juce::ARAAudioSource* audioSource)
-{
-    if (!mainComponent || !audioSource)
+void PitchEditorDocumentController::processAudioSource(juce::ARAAudioSource* source) {
+    if (!mainComponent || !source)
         return;
 
-    // Store reference for re-analysis
+    auto numSamples = static_cast<int>(source->getSampleCount());
+    auto numChannels = source->getChannelCount();
+    auto sourceSampleRate = source->getSampleRate();
+
+    if (numSamples <= 0 || numChannels <= 0 || sourceSampleRate <= 0)
+        return;
+
+    juce::ARAAudioSourceReader reader(source);
+    juce::AudioBuffer<float> buffer(numChannels, numSamples);
+
+    if (!reader.read(&buffer, 0, numSamples, 0, true, true))
+        return;
+
+    mainComponent->getToolbar().setStatusMessage("ARA Mode - Analyzing...");
+    mainComponent->setHostAudio(buffer, sourceSampleRate);
+}
+
+void PitchEditorDocumentController::didAddAudioSourceToDocument(juce::ARADocument*,
+                                                                 juce::ARAAudioSource* audioSource) {
     currentAudioSource = audioSource;
-
-    // Read audio from ARA source and pass to MainComponent for analysis
-    juce::ARAAudioSourceReader reader(audioSource);
-
-    const auto numSamples = static_cast<int>(audioSource->getSampleCount());
-    const auto numChannels = audioSource->getChannelCount();
-    const auto sourceSampleRate = audioSource->getSampleRate();
-
-    juce::AudioBuffer<float> buffer(numChannels, numSamples);
-    reader.read(&buffer, 0, numSamples, 0, true, true);
-
-    // Pass to MainComponent for analysis
-    mainComponent->setHostAudio(buffer, sourceSampleRate);
+    processAudioSource(audioSource);
 }
 
-void PitchEditorDocumentController::reanalyze()
-{
-    if (!mainComponent || !currentAudioSource)
-        return;
-
-    // Re-read audio from ARA source
-    juce::ARAAudioSourceReader reader(currentAudioSource);
-
-    const auto numSamples = static_cast<int>(currentAudioSource->getSampleCount());
-    const auto numChannels = currentAudioSource->getChannelCount();
-    const auto sourceSampleRate = currentAudioSource->getSampleRate();
-
-    juce::AudioBuffer<float> buffer(numChannels, numSamples);
-    reader.read(&buffer, 0, numSamples, 0, true, true);
-
-    // Pass to MainComponent for analysis
-    mainComponent->setHostAudio(buffer, sourceSampleRate);
+void PitchEditorDocumentController::reanalyze() {
+    if (currentAudioSource)
+        processAudioSource(currentAudioSource);
 }
 
-juce::ARAPlaybackRenderer* PitchEditorDocumentController::doCreatePlaybackRenderer() noexcept
-{
-    return new PitchEditorPlaybackRenderer(getDocumentController());
+juce::ARAPlaybackRenderer* PitchEditorDocumentController::doCreatePlaybackRenderer() noexcept {
+    return new PitchEditorPlaybackRenderer(
+        ARADocumentControllerSpecialisation::getDocumentController());
 }
 
 bool PitchEditorDocumentController::doRestoreObjectsFromStream(juce::ARAInputStream& input,
-                                                                const juce::ARARestoreObjectsFilter* /*filter*/) noexcept
-{
-    // Read project state
-    const auto dataSize = input.readInt64();
+                                                                const juce::ARARestoreObjectsFilter*) noexcept {
+    auto dataSize = input.readInt64();
     if (dataSize <= 0)
         return true;
 
@@ -190,10 +192,8 @@ bool PitchEditorDocumentController::doRestoreObjectsFromStream(juce::ARAInputStr
     data.setSize(static_cast<size_t>(dataSize));
     input.read(data.getData(), static_cast<int>(dataSize));
 
-    if (mainComponent && mainComponent->getProject())
-    {
-        auto xml = juce::AudioProcessor::getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
-        if (xml)
+    if (mainComponent && mainComponent->getProject()) {
+        if (auto xml = juce::AudioProcessor::getXmlFromBinary(data.getData(), static_cast<int>(data.getSize())))
             mainComponent->getProject()->fromXml(*xml);
     }
 
@@ -201,17 +201,14 @@ bool PitchEditorDocumentController::doRestoreObjectsFromStream(juce::ARAInputStr
 }
 
 bool PitchEditorDocumentController::doStoreObjectsToStream(juce::ARAOutputStream& output,
-                                                            const juce::ARAStoreObjectsFilter* /*filter*/) noexcept
-{
-    if (!mainComponent || !mainComponent->getProject())
-    {
+                                                            const juce::ARAStoreObjectsFilter*) noexcept {
+    if (!mainComponent || !mainComponent->getProject()) {
         output.writeInt64(0);
         return true;
     }
 
     auto xml = mainComponent->getProject()->toXml();
-    if (!xml)
-    {
+    if (!xml) {
         output.writeInt64(0);
         return true;
     }

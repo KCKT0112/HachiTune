@@ -37,6 +37,10 @@ public:
     void showProgress(const juce::String& message);
     void hideProgress();
     void setProgress(float progress);  // 0.0 to 1.0, or -1 for indeterminate
+    
+    // Status display
+    void setStatusMessage(const juce::String& message);  // Show status (e.g., "ARA Mode" or "Non-ARA Mode")
+    juce::String getStatusText() const { return statusLabel.getText(); }
 
     std::function<void()> onPlay;
     std::function<void()> onPause;
@@ -48,8 +52,8 @@ public:
 
     // Plugin mode callbacks
     std::function<void()> onReanalyze;
-    std::function<void()> onRender;
     std::function<void(bool)> onToggleSidebar;  // Called with new visibility state
+    // Note: Removed onRender - Melodyne-style: edits automatically trigger real-time processing
 
 private:
     void updateTimeDisplay();
@@ -62,8 +66,8 @@ private:
 
     // Plugin mode buttons
     juce::TextButton reanalyzeButton { "Re-analyze" };
-    juce::TextButton renderButton { "Render" };
     bool pluginMode = false;
+    // Note: Removed renderButton - Melodyne-style: automatic real-time processing
 
     // Edit mode buttons
     juce::TextButton selectModeButton { "Select" };
@@ -80,6 +84,10 @@ private:
     juce::ProgressBar progressBar { progressValue };
     juce::Label progressLabel;
     bool showingProgress = false;
+    
+    // Status label (for mode indication)
+    juce::Label statusLabel;
+    bool showingStatus = false;
 
     // Sidebar toggle
     juce::TextButton sidebarToggleButton { "Menu" };

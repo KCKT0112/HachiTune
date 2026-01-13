@@ -568,26 +568,25 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g) {
     juce::Path path;
     bool pathStarted = false;
 
-    // Get pitch offset for this note
-    float noteOffset = note.getPitchOffset() + globalOffset;
-
     int startFrame = note.getStartFrame();
     int endFrame =
         std::min(note.getEndFrame(), static_cast<int>(audioData.f0.size()));
 
     for (int i = startFrame; i < endFrame; ++i) {
+      // Base pitch: during drag, add pitchOffset to simulate the new base pitch
+      // This gives real-time preview of how the curve will look after drag completes
       float baseMidi =
           (i < static_cast<int>(audioData.basePitch.size()))
-              ? audioData.basePitch[static_cast<size_t>(i)]
+              ? audioData.basePitch[static_cast<size_t>(i)] + note.getPitchOffset()
               : ((i < static_cast<int>(audioData.f0.size()) &&
                   audioData.f0[static_cast<size_t>(i)] > 0.0f)
-                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)])
+                     ? freqToMidi(audioData.f0[static_cast<size_t>(i)]) + note.getPitchOffset()
                      : 0.0f);
       float deltaMidi = (i < static_cast<int>(audioData.deltaPitch.size()))
                             ? audioData.deltaPitch[static_cast<size_t>(i)]
                             : 0.0f;
-      float finalMidi = baseMidi + deltaMidi +
-                        noteOffset; // noteOffset already includes globalOffset
+      // Final = base (with drag offset) + delta + global offset only
+      float finalMidi = baseMidi + deltaMidi + globalOffset;
 
       if (finalMidi > 0.0f) {
         float x = framesToSeconds(i) * pixelsPerSecond;
@@ -881,17 +880,10 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
     float deltaSemitones = deltaY / pixelsPerSemitone;
 
     // Update pitch offset for visual feedback only (lightweight)
-    // Don't rebuild curves during drag for performance - just update offset
     draggedNote->setPitchOffset(deltaSemitones);
     draggedNote->markDirty();
 
-    // Note: We don't rebuild base pitch or F0 during drag for performance.
-    // The display uses pitchOffset which is already updated above.
-    // Full rebuild happens in mouseUp when drag completes.
-
-    if (onPitchEdited)
-      onPitchEdited();
-
+    // Always repaint during drag for real-time preview (throttled)
     if (shouldRepaint) {
       repaint();
       lastDragRepaintTime = now;
@@ -932,6 +924,9 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
       PitchCurveProcessor::rebuildBaseFromNotes(*project);
       PitchCurveProcessor::composeF0InPlace(*project, /*applyUvMask=*/false);
 
+      // Invalidate base pitch cache so it gets regenerated on next paint
+      invalidateBasePitchCache();
+
       // Mark dirty range for synthesis
       int smoothStart = std::max(0, startFrame - 60);
       int smoothEnd = std::min(f0Size, endFrame + 60);
@@ -964,6 +959,8 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
                 PitchCurveProcessor::rebuildBaseFromNotes(*project);
                 PitchCurveProcessor::composeF0InPlace(*project,
                                                       /*applyUvMask=*/false);
+                // Invalidate base pitch cache
+                invalidateBasePitchCache();
                 // Set dirty range for synthesis (same as when editing)
                 int smoothStart = std::max(0, capturedStartFrame - 60);
                 int smoothEnd = std::min(capturedF0Size, capturedEndFrame + 60);

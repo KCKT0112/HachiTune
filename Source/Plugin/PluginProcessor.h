@@ -1,76 +1,92 @@
 #pragma once
 
+#include "../Audio/RealtimePitchProcessor.h"
 #include "../JuceHeader.h"
+#include "HostCompatibility.h"
 #include <atomic>
 
 class MainComponent;
 
+/**
+ * HachiTune Audio Processor
+ *
+ * Supports two modes like Melodyne:
+ * 1. ARA Mode: Direct audio access via ARA protocol (Studio One, Cubase, Logic, etc.)
+ * 2. Non-ARA Mode: Auto-capture and process (FL Studio, Ableton, etc.)
+ */
 class PitchEditorAudioProcessor : public juce::AudioProcessor
 #if JucePlugin_Enable_ARA
-                                 , public juce::AudioProcessorARAExtension
+    , public juce::AudioProcessorARAExtension
 #endif
 {
 public:
     PitchEditorAudioProcessor();
     ~PitchEditorAudioProcessor() override;
 
-    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    // AudioProcessor interface
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
-   #if ! JucePlugin_PreferredChannelConfigurations
-    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-   #endif
-
-    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+#if !JucePlugin_PreferredChannelConfigurations
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
+#endif
 
     juce::AudioProcessorEditor* createEditor() override;
-    bool hasEditor() const override;
+    bool hasEditor() const override { return true; }
 
     const juce::String getName() const override;
-
     bool acceptsMidi() const override;
     bool producesMidi() const override;
     bool isMidiEffect() const override;
-    double getTailLengthSeconds() const override;
+    double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override;
-    int getCurrentProgram() override;
-    void setCurrentProgram (int index) override;
-    const juce::String getProgramName (int index) override;
-    void changeProgramName (int index, const juce::String& newName) override;
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
 
-    void getStateInformation (juce::MemoryBlock& destData) override;
-    void setStateInformation (const void* data, int sizeInBytes) override;
+    void getStateInformation(juce::MemoryBlock& destData) override;
+    void setStateInformation(const void* data, int sizeInBytes) override;
 
-    // Capture/playback control
-    void startCapture();
-    void stopCapture();
-    bool isCapturing() const { return capturing; }
-
-    juce::AudioBuffer<float>& getCapturedAudio() { return capturedBuffer; }
-    void setProcessedAudio(const juce::AudioBuffer<float>& buffer);
-    bool hasProcessedAudio() const { return processedReady; }
-    void resetPlayback() { playbackPosition = 0; }
-
-    double getHostSampleRate() const { return hostSampleRate; }
+    // Mode detection
+    bool isARAModeActive() const;
+    HostCompatibility::HostInfo getHostInfo() const;
+    juce::String getHostStatusMessage() const;
 
     // Editor connection
-    void setMainComponent(MainComponent* mc) { mainComponent = mc; }
+    void setMainComponent(MainComponent* mc);
+    MainComponent* getMainComponent() const { return mainComponent; }
+
+    // Real-time processor access
+    RealtimePitchProcessor& getRealtimeProcessor() { return realtimeProcessor; }
+    double getHostSampleRate() const { return hostSampleRate; }
+
+    // Non-ARA mode: capture control
+    void startCapture();
+    void stopCapture();
+    bool isCapturing() const { return captureState == CaptureState::Capturing; }
+    bool hasCapturedAudio() const { return captureState == CaptureState::Complete; }
 
 private:
-    // Capture state
-    std::atomic<bool> capturing { false };
-    juce::AudioBuffer<float> capturedBuffer;
-    int capturePosition = 0;
-    int maxCaptureLength = 0;
+    // Capture state machine for non-ARA mode
+    enum class CaptureState { Idle, WaitingForAudio, Capturing, Complete };
 
-    // Processed audio
-    juce::AudioBuffer<float> processedBuffer;
-    std::atomic<bool> processedReady { false };
-    int playbackPosition = 0;
+    void processNonARAMode(juce::AudioBuffer<float>& buffer,
+                           const juce::AudioPlayHead::PositionInfo& posInfo);
+    void finishCapture();
 
-    double hostSampleRate = 44100.0;
+    RealtimePitchProcessor realtimeProcessor;
     MainComponent* mainComponent = nullptr;
+    double hostSampleRate = 44100.0;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchEditorAudioProcessor)
+    // Non-ARA capture
+    std::atomic<CaptureState> captureState{CaptureState::Idle};
+    juce::AudioBuffer<float> captureBuffer;
+    int capturePosition = 0;
+    static constexpr int MAX_CAPTURE_SECONDS = 300; // 5 minutes max
+    static constexpr float AUDIO_THRESHOLD = 0.001f; // -60dB
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PitchEditorAudioProcessor)
 };

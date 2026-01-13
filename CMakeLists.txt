@@ -174,6 +174,8 @@ set(TOOLBAR_SOURCE Source/UI/ToolbarComponent.cpp)
 
 set(PITCH_EDITOR_COMMON_SOURCES
     Source/JuceHeader.h
+    Source/Plugin/HostCompatibility.h
+    Source/Plugin/HostCompatibility.cpp
     Source/Audio/AudioEngine.cpp
     Source/Audio/AudioEngine.h
     Source/Audio/Vocoder.cpp
@@ -184,6 +186,8 @@ set(PITCH_EDITOR_COMMON_SOURCES
     Source/Audio/FCPEPitchDetector.h
     Source/Audio/SOMEDetector.cpp
     Source/Audio/SOMEDetector.h
+    Source/Audio/RealtimePitchProcessor.cpp
+    Source/Audio/RealtimePitchProcessor.h
     Source/UI/CustomTitleBar.cpp
     Source/UI/CustomTitleBar.h
     ${MAINCOMPONENT_SOURCE}
