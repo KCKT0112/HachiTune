@@ -69,6 +69,9 @@ private:
     juce::LagrangeInterpolator interpolator;
     double playbackRatio = 1.0;  // waveformSampleRate / deviceSampleRate
     double fractionalPosition = 0.0;  // Sub-sample position for interpolation
+
+    // Thread safety for waveform updates
+    juce::SpinLock waveformLock;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioEngine)
 };

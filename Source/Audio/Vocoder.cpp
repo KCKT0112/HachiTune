@@ -379,25 +379,8 @@ std::vector<float> Vocoder::infer(const std::vector<std::vector<float>>& mel,
             " maxAbs=" + std::to_string(maxAbs) +
             " avgAbs=" + std::to_string(avgAbs));
         
-        // Normalize output to have consistent volume
-        // Target peak around 0.8 to leave headroom
-        const float targetPeak = 0.8f;
-        
-        if (maxAbs > 0.001f)  // Avoid division by zero
-        {
-            float scale = targetPeak / maxAbs;
-            // Don't amplify too much (max 10x gain)
-            scale = std::min(scale, 10.0f);
-            
-            for (float& sample : waveform)
-            {
-                sample *= scale;
-            }
-            log("Applied gain scaling: " + std::to_string(scale) + 
-                "x (new peak: " + std::to_string(maxAbs * scale) + ")");
-        }
-        
-        // Final safety clamp
+        // No normalization - output vocoder result as-is
+        // Only apply safety clamp to prevent clipping
         for (float& sample : waveform)
         {
             sample = std::clamp(sample, -1.0f, 1.0f);

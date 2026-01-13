@@ -920,6 +920,21 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
       draggedNote->setPitchOffset(
           0.0f); // Reset offset since it's baked into midiNote
 
+      // Find adjacent notes to expand dirty range (basePitch smoothing affects neighbors)
+      const auto& notes = project->getNotes();
+      int expandedStart = startFrame;
+      int expandedEnd = endFrame;
+      for (const auto& note : notes) {
+        if (&note == draggedNote) continue;
+        // If note is adjacent (within smoothing window ~20 frames), include it
+        if (note.getEndFrame() > startFrame - 30 && note.getEndFrame() <= startFrame) {
+          expandedStart = std::min(expandedStart, note.getStartFrame());
+        }
+        if (note.getStartFrame() < endFrame + 30 && note.getStartFrame() >= endFrame) {
+          expandedEnd = std::max(expandedEnd, note.getEndFrame());
+        }
+      }
+
       // Rebuild base pitch curve and F0 with final note position
       PitchCurveProcessor::rebuildBaseFromNotes(*project);
       PitchCurveProcessor::composeF0InPlace(*project, /*applyUvMask=*/false);
@@ -927,9 +942,9 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
       // Invalidate base pitch cache so it gets regenerated on next paint
       invalidateBasePitchCache();
 
-      // Mark dirty range for synthesis
-      int smoothStart = std::max(0, startFrame - 60);
-      int smoothEnd = std::min(f0Size, endFrame + 60);
+      // Mark dirty range for synthesis (use expanded range)
+      int smoothStart = std::max(0, expandedStart - 60);
+      int smoothEnd = std::min(f0Size, expandedEnd + 60);
       project->setF0DirtyRange(smoothStart, smoothEnd);
 
       // Create undo action
@@ -946,24 +961,22 @@ void PianoRollComponent::mouseUp(const juce::MouseEvent &e) {
           f0Edits.push_back(edit);
         }
         // Capture frame range for undo callback
-        int capturedStartFrame = startFrame;
-        int capturedEndFrame = endFrame;
+        int capturedExpandedStart = expandedStart;
+        int capturedExpandedEnd = expandedEnd;
         int capturedF0Size = f0Size;
-        Note *capturedNote = draggedNote; // Capture note pointer for callback
         auto action = std::make_unique<NotePitchDragAction>(
             draggedNote, &audioData.f0, originalMidiNote,
             originalMidiNote + newOffset, std::move(f0Edits),
-            [this, capturedStartFrame, capturedEndFrame, capturedF0Size,
-             capturedNote](Note *n) {
+            [this, capturedExpandedStart, capturedExpandedEnd, capturedF0Size](Note *n) {
               if (project) {
                 PitchCurveProcessor::rebuildBaseFromNotes(*project);
                 PitchCurveProcessor::composeF0InPlace(*project,
                                                       /*applyUvMask=*/false);
                 // Invalidate base pitch cache
                 invalidateBasePitchCache();
-                // Set dirty range for synthesis (same as when editing)
-                int smoothStart = std::max(0, capturedStartFrame - 60);
-                int smoothEnd = std::min(capturedF0Size, capturedEndFrame + 60);
+                // Set dirty range for synthesis (use expanded range)
+                int smoothStart = std::max(0, capturedExpandedStart - 60);
+                int smoothEnd = std::min(capturedF0Size, capturedExpandedEnd + 60);
                 project->setF0DirtyRange(smoothStart, smoothEnd);
                 // Clear note's dirty flag since we're using F0 dirty range
                 // instead This prevents getDirtyFrameRange() from expanding the

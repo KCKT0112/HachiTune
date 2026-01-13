@@ -1148,39 +1148,34 @@ void MainComponent::resynthesizeIncremental() {
           return;
         }
 
-        // Calculate RMS for volume matching
-        float *dst = audioData.waveform.getWritePointer(0);
-        float originalRms = 0.0f;
-        int rmsCount = 0;
-        for (int i = replaceStartSample; i < replaceStartSample + replaceSamples && i < totalSamples; ++i) {
-          originalRms += dst[i] * dst[i];
-          rmsCount++;
-        }
-        if (rmsCount > 0)
-          originalRms = std::sqrt(originalRms / rmsCount);
-
-        float synthRms = 0.0f;
-        for (int i = 0; i < replaceSamples && i < static_cast<int>(synthesizedAudio.size()); ++i) {
-          synthRms += synthesizedAudio[i] * synthesizedAudio[i];
-        }
-        if (replaceSamples > 0)
-          synthRms = std::sqrt(synthRms / replaceSamples);
-
-        float volumeScale = 1.0f;
-        if (synthRms > 0.001f && originalRms > 0.001f) {
-          volumeScale = originalRms / synthRms;
-          volumeScale = std::clamp(volumeScale, 0.5f, 2.0f);
-        }
-
-        // Direct copy with volume matching
+        // Apply crossfade at boundaries to avoid pops/clicks
+        // Only replace the middle portion directly, crossfade at edges
         int numChannels = audioData.waveform.getNumChannels();
+        int crossfadeSamples = capturedPaddingFrames * capturedHopSize / 2; // Half of padding for crossfade
+        crossfadeSamples = std::min(crossfadeSamples, actualSamples / 4); // Don't exceed 1/4 of total
+
         for (int i = 0; i < replaceSamples && (replaceStartSample + i) < totalSamples; ++i) {
           int dstIdx = replaceStartSample + i;
-          float srcVal = synthesizedAudio[i] * volumeScale;
+          float srcVal = synthesizedAudio[i];
+
+          // Calculate crossfade factor
+          float factor = 1.0f;
+          if (i < crossfadeSamples && replaceStartSample > 0) {
+            // Fade in at start
+            factor = static_cast<float>(i) / crossfadeSamples;
+          } else if (i >= replaceSamples - crossfadeSamples && (replaceStartSample + replaceSamples) < totalSamples) {
+            // Fade out at end
+            factor = static_cast<float>(replaceSamples - 1 - i) / crossfadeSamples;
+          }
 
           for (int ch = 0; ch < numChannels; ++ch) {
             float *dstCh = audioData.waveform.getWritePointer(ch);
-            dstCh[dstIdx] = srcVal;
+            if (factor < 1.0f) {
+              // Crossfade: blend original and synthesized
+              dstCh[dstIdx] = dstCh[dstIdx] * (1.0f - factor) + srcVal * factor;
+            } else {
+              dstCh[dstIdx] = srcVal;
+            }
           }
         }
 

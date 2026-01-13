@@ -64,11 +64,19 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
         bufferToFill.clearActiveBufferRegion();
         return;
     }
-    
+
+    const juce::SpinLock::ScopedTryLockType lock(waveformLock);
+    if (!lock.isLocked())
+    {
+        // Waveform is being updated, output silence to avoid glitches
+        bufferToFill.clearActiveBufferRegion();
+        return;
+    }
+
     auto* outputBuffer = bufferToFill.buffer;
     auto numOutputSamples = bufferToFill.numSamples;
     auto startSample = bufferToFill.startSample;
-    
+
     int64_t pos = currentPosition.load();
     int64_t waveformLength = currentWaveform.getNumSamples();
     
@@ -152,24 +160,32 @@ void AudioEngine::loadWaveform(const juce::AudioBuffer<float>& buffer, int sampl
         jassertfalse; // This should never happen in valid code
         return;
     }
-    
+
     DBG("AudioEngine::loadWaveform called - this=" << juce::String::toHexString(reinterpret_cast<uintptr_t>(this)));
-    
-    stop();
-    currentWaveform = buffer;
-    waveformSampleRate = sampleRate;
-    currentPosition.store(0);
-    
-    // Update playback ratio for sample rate conversion
-    if (currentSampleRate > 0)
-        playbackRatio = static_cast<double>(waveformSampleRate) / currentSampleRate;
-    else
-        playbackRatio = 1.0;
-    
-    interpolator.reset();
-    fractionalPosition = 0.0;
-    
-    DBG("Loaded waveform: " + juce::String(buffer.getNumSamples()) + " samples at " + 
+
+    // Stop playback first
+    playing = false;
+
+    // Wait a bit for audio thread to notice
+    juce::Thread::sleep(10);
+
+    {
+        const juce::SpinLock::ScopedLockType lock(waveformLock);
+        currentWaveform = buffer;
+        waveformSampleRate = sampleRate;
+        currentPosition.store(0);
+
+        // Update playback ratio for sample rate conversion
+        if (currentSampleRate > 0)
+            playbackRatio = static_cast<double>(waveformSampleRate) / currentSampleRate;
+        else
+            playbackRatio = 1.0;
+
+        interpolator.reset();
+        fractionalPosition = 0.0;
+    }
+
+    DBG("Loaded waveform: " + juce::String(buffer.getNumSamples()) + " samples at " +
         juce::String(sampleRate) + " Hz, playback ratio: " + juce::String(playbackRatio));
 }
 
@@ -199,10 +215,12 @@ void AudioEngine::stop()
         jassertfalse; // This should never happen in valid code
         return;
     }
-    
+
     DBG("AudioEngine::stop called - this=" << juce::String::toHexString(reinterpret_cast<uintptr_t>(this)));
-    
+
     playing = false;
+
+    const juce::SpinLock::ScopedLockType lock(waveformLock);
     currentPosition.store(0);
     interpolator.reset();
     fractionalPosition = 0.0;
@@ -210,6 +228,7 @@ void AudioEngine::stop()
 
 void AudioEngine::seek(double timeSeconds)
 {
+    const juce::SpinLock::ScopedLockType lock(waveformLock);
     int64_t newPos = static_cast<int64_t>(timeSeconds * waveformSampleRate);
     newPos = juce::jlimit<int64_t>(0, currentWaveform.getNumSamples(), newPos);
     currentPosition.store(newPos);
