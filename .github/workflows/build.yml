@@ -165,9 +165,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Dependencies
-        run: brew install ninja
-
       - name: Download Models
         run: |
           mkdir -p Resources/models
@@ -214,11 +211,23 @@ jobs:
             -ov -format UDZO \
             HachiTune-macOS.dmg
 
+      - name: Create App ZIP
+        run: |
+          cd package
+          zip -r ../HachiTune-macOS-App.zip HachiTune.app
+
       - name: Upload Artifact (DMG)
         uses: actions/upload-artifact@v4
         with:
           name: HachiTune-macOS
           path: HachiTune-macOS.dmg
+          retention-days: 30
+
+      - name: Upload Artifact (App ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HachiTune-macOS-App
+          path: HachiTune-macOS-App.zip
           retention-days: 30
 
       - name: Upload Artifact (Unpacked)
@@ -433,6 +442,11 @@ jobs:
             mv HachiTune-macOS/*.dmg ./HachiTune-macOS.dmg || true
           fi
           
+          # macOS App ZIP is already ready
+          if [ -d "HachiTune-macOS-App" ]; then
+            mv HachiTune-macOS-App/*.zip ./HachiTune-macOS-App.zip || true
+          fi
+          
           # Linux tarballs are already ready
           if [ -d "HachiTune-Linux" ]; then
             mv HachiTune-Linux/*.tar.gz ./HachiTune-Linux.tar.gz || true
@@ -452,6 +466,7 @@ jobs:
             artifacts/HachiTune-Windows-DirectML.zip
             artifacts/HachiTune-Windows-CUDA.zip
             artifacts/HachiTune-macOS.dmg
+            artifacts/HachiTune-macOS-App.zip
             artifacts/HachiTune-Linux.tar.gz
             artifacts/HachiTune-Linux-GPU.tar.gz
           draft: true
