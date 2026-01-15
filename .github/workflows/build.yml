@@ -1,144 +1,251 @@
-name: Build Pitch Editor
+name: Build HachiTune
 
 on:
   push:
+    branches: [main, master,refactor]
     tags:
-      - "v*"
+      - 'v*'
+  pull_request:
+    branches: [main, master,refactor]
   workflow_dispatch:
 
 env:
   BUILD_TYPE: Release
-  ONNX_VERSION: "1.17.1"
+  ONNXRUNTIME_VERSION: "1.17.3"
 
 jobs:
+  # ===========================================
+  # Windows CPU Build
+  # ===========================================
   build-windows-cpu:
     runs-on: windows-latest
+    name: Windows (CPU)
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v1.1
+      - name: Download Models
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
       - name: Build
-        run: cmake --build build --config ${{ env.BUILD_TYPE }}
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
-      - name: Package
+      - name: Prepare Package
+        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package/PitchEditor-Windows-CPU
-          Copy-Item "build/PitchEditor_artefacts/Release/Pitch Editor.exe" -Destination "package/PitchEditor-Windows-CPU/PitchEditor.exe"
-          Copy-Item build/PitchEditor_artefacts/Release/*.dll -Destination package/PitchEditor-Windows-CPU/ -ErrorAction SilentlyContinue
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/models -Destination package/PitchEditor-Windows-CPU/ -ErrorAction SilentlyContinue
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/lang -Destination package/PitchEditor-Windows-CPU/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path package
+          
+          # Copy standalone app
+          Copy-Item -Path "build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/*" -Destination "package/" -Recurse -Force
+          
+          # Copy VST3 plugin
+          if (Test-Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3") {
+            Copy-Item -Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" -Destination "package/" -Recurse -Force
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PitchEditor-Windows-CPU
-          path: package/PitchEditor-Windows-CPU
+          name: HachiTune-Windows-CPU
+          path: package/
+          retention-days: 30
 
+  # ===========================================
+  # Windows DirectML Build
+  # ===========================================
   build-windows-directml:
     runs-on: windows-latest
+    name: Windows (DirectML)
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v1.1
-
-      - name: Download ONNX Runtime DirectML
+      - name: Download Models
+        shell: pwsh
         run: |
-          # Download CPU version for headers
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ONNX_VERSION }}/onnxruntime-win-x64-${{ env.ONNX_VERSION }}.zip" -OutFile "onnxruntime-cpu.zip"
-          Expand-Archive -Path "onnxruntime-cpu.zip" -DestinationPath "."
-          # Download DirectML version
-          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime.DirectML/${{ env.ONNX_VERSION }}" -OutFile "onnxruntime-dml.nupkg"
-          Rename-Item "onnxruntime-dml.nupkg" "onnxruntime-dml.zip"
-          Expand-Archive -Path "onnxruntime-dml.zip" -DestinationPath "onnxruntime-dml-nuget"
-          # Download DirectML redistributable
-          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.AI.DirectML/1.13.1" -OutFile "directml.nupkg"
-          Rename-Item "directml.nupkg" "directml.zip"
-          Expand-Archive -Path "directml.zip" -DestinationPath "directml-nuget"
-          # Create merged onnxruntime directory
-          New-Item -ItemType Directory -Force -Path onnxruntime/lib
-          Copy-Item -Recurse "onnxruntime-win-x64-${{ env.ONNX_VERSION }}/include" onnxruntime/
-          Copy-Item "onnxruntime-dml-nuget/runtimes/win-x64/native/onnxruntime.dll" onnxruntime/lib/
-          Copy-Item "onnxruntime-dml-nuget/runtimes/win-x64/native/onnxruntime.lib" onnxruntime/lib/
-          Copy-Item "directml-nuget/bin/x64-win/DirectML.dll" onnxruntime/lib/
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_DIRECTML=ON -DONNXRUNTIME_ROOT="./onnxruntime"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_DIRECTML=ON
 
       - name: Build
-        run: cmake --build build --config ${{ env.BUILD_TYPE }}
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
-      - name: Package
+      - name: Prepare Package
+        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package/PitchEditor-Windows-DirectML
-          Copy-Item "build/PitchEditor_artefacts/Release/Pitch Editor.exe" -Destination "package/PitchEditor-Windows-DirectML/PitchEditor.exe"
-          Copy-Item onnxruntime/lib/onnxruntime.dll -Destination package/PitchEditor-Windows-DirectML/
-          Copy-Item onnxruntime/lib/DirectML.dll -Destination package/PitchEditor-Windows-DirectML/
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/models -Destination package/PitchEditor-Windows-DirectML/ -ErrorAction SilentlyContinue
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/lang -Destination package/PitchEditor-Windows-DirectML/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path package
+          
+          # Copy standalone app
+          Copy-Item -Path "build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/*" -Destination "package/" -Recurse -Force
+          
+          # Copy VST3 plugin
+          if (Test-Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3") {
+            Copy-Item -Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" -Destination "package/" -Recurse -Force
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PitchEditor-Windows-DirectML
-          path: package/PitchEditor-Windows-DirectML
+          name: HachiTune-Windows-DirectML
+          path: package/
+          retention-days: 30
 
+  # ===========================================
+  # Windows CUDA Build
+  # ===========================================
   build-windows-cuda:
     runs-on: windows-latest
+    name: Windows (CUDA)
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup MSVC
-        uses: microsoft/setup-msbuild@v1.1
-
-      - name: Download ONNX Runtime CUDA
+      - name: Download Models
+        shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ONNX_VERSION }}/onnxruntime-win-x64-gpu-${{ env.ONNX_VERSION }}.zip" -OutFile "onnxruntime-gpu.zip"
-          Expand-Archive -Path "onnxruntime-gpu.zip" -DestinationPath "."
-          Rename-Item "onnxruntime-win-x64-gpu-${{ env.ONNX_VERSION }}" "onnxruntime"
+          New-Item -ItemType Directory -Force -Path "Resources/models"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx" -OutFile "Resources/models/rmvpe.onnx"
+          Invoke-WebRequest -Uri "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx" -OutFile "Resources/models/some.onnx"
 
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_CUDA=ON -DONNXRUNTIME_ROOT="./onnxruntime"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_CUDA=ON
 
       - name: Build
-        run: cmake --build build --config ${{ env.BUILD_TYPE }}
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
-      - name: Package
+      - name: Prepare Package
+        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path package/PitchEditor-Windows-CUDA
-          Copy-Item "build/PitchEditor_artefacts/Release/Pitch Editor.exe" -Destination "package/PitchEditor-Windows-CUDA/PitchEditor.exe"
-          Copy-Item onnxruntime/lib/*.dll -Destination package/PitchEditor-Windows-CUDA/
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/models -Destination package/PitchEditor-Windows-CUDA/ -ErrorAction SilentlyContinue
-          Copy-Item -Recurse build/PitchEditor_artefacts/Release/lang -Destination package/PitchEditor-Windows-CUDA/ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path package
+          
+          # Copy standalone app
+          Copy-Item -Path "build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/*" -Destination "package/" -Recurse -Force
+          
+          # Copy VST3 plugin
+          if (Test-Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3") {
+            Copy-Item -Path "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" -Destination "package/" -Recurse -Force
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PitchEditor-Windows-CUDA
-          path: package/PitchEditor-Windows-CUDA
+          name: HachiTune-Windows-CUDA
+          path: package/
+          retention-days: 30
 
-  build-linux:
-    runs-on: ubuntu-22.04
+  # ===========================================
+  # macOS Build (Apple Silicon)
+  # ===========================================
+  build-macos:
+    runs-on: macos-14
+    name: macOS (ARM64)
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Prepare Package
+        run: |
+          mkdir -p package
+          
+          # Copy standalone app
+          cp -R "build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/HachiTune.app" package/
+          
+          # Copy VST3 plugin
+          if [ -d "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" ]; then
+            cp -R "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3/HachiTune.vst3" package/
+          fi
+          
+          # Copy AU plugin
+          if [ -d "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/AU" ]; then
+            cp -R "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/AU/HachiTune.component" package/
+          fi
+
+      - name: Ad-hoc Code Sign
+        run: |
+          codesign --force --deep -s - package/HachiTune.app || true
+          codesign --force --deep -s - package/HachiTune.vst3 || true
+          codesign --force --deep -s - package/HachiTune.component || true
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "HachiTune" \
+            -srcfolder package \
+            -ov -format UDZO \
+            HachiTune-macOS.dmg
+
+      - name: Create App ZIP
+        run: |
+          cd package
+          zip -r ../HachiTune-macOS-App.zip HachiTune.app
+
+      - name: Upload Artifact (DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HachiTune-macOS
+          path: HachiTune-macOS.dmg
+          retention-days: 30
+
+      - name: Upload Artifact (App ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HachiTune-macOS-App
+          path: HachiTune-macOS-App.zip
+          retention-days: 30
+
+      - name: Upload Artifact (Unpacked)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HachiTune-macOS-Unpacked
+          path: package/
+          retention-days: 30
+
+  # ===========================================
+  # Linux Build
+  # ===========================================
+  build-linux:
+    runs-on: ubuntu-22.04
+    name: Linux (CPU)
+
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -147,9 +254,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            gobjc++ \
             libasound2-dev \
             libjack-jackd2-dev \
-            libcurl4-openssl-dev \
             libfreetype6-dev \
             libx11-dev \
             libxcomposite-dev \
@@ -159,66 +270,207 @@ jobs:
             libxrandr-dev \
             libxrender-dev \
             libwebkit2gtk-4.0-dev \
+            libcurl4-openssl-dev \
             libglu1-mesa-dev \
             mesa-common-dev
 
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
+
       - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
       - name: Build
-        run: cmake --build build --config ${{ env.BUILD_TYPE }} -j$(nproc)
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
 
-      - name: Package
+      - name: Prepare Package
         run: |
-          mkdir -p package/PitchEditor-Linux
-          cp "build/PitchEditor_artefacts/Release/Pitch Editor" package/PitchEditor-Linux/PitchEditor || true
-          cp build/PitchEditor_artefacts/Release/*.so* package/PitchEditor-Linux/ 2>/dev/null || true
-          cp -r build/PitchEditor_artefacts/Release/models package/PitchEditor-Linux/ 2>/dev/null || true
-          cp -r build/PitchEditor_artefacts/Release/lang package/PitchEditor-Linux/ 2>/dev/null || true
-          cat > package/PitchEditor-Linux/run.sh << 'EOF'
+          mkdir -p package/HachiTune
+          
+          # Copy standalone app
+          cp -R build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/* package/HachiTune/
+          
+          # Copy VST3 plugin
+          if [ -d "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" ]; then
+            cp -R build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3 package/HachiTune/
+          fi
+          
+          # Create launch script
+          cat > package/HachiTune/run.sh << 'EOF'
           #!/bin/bash
           SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           export LD_LIBRARY_PATH="$SCRIPT_DIR:$LD_LIBRARY_PATH"
-          "$SCRIPT_DIR/PitchEditor" "$@"
+          exec "$SCRIPT_DIR/HachiTune" "$@"
           EOF
-          chmod +x package/PitchEditor-Linux/run.sh package/PitchEditor-Linux/PitchEditor
-          cd package && tar -czvf ../PitchEditor-Linux.tar.gz PitchEditor-Linux
+          chmod +x package/HachiTune/run.sh
+          
+          # Create tarball
+          cd package
+          tar -czvf ../HachiTune-Linux.tar.gz HachiTune
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PitchEditor-Linux
-          path: PitchEditor-Linux.tar.gz
+          name: HachiTune-Linux
+          path: HachiTune-Linux.tar.gz
+          retention-days: 30
 
+  # ===========================================
+  # Linux GPU Build
+  # ===========================================
+  build-linux-gpu:
+    runs-on: ubuntu-22.04
+    name: Linux (GPU)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            gobjc++ \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxrender-dev \
+            libwebkit2gtk-4.0-dev \
+            libcurl4-openssl-dev \
+            libglu1-mesa-dev \
+            mesa-common-dev
+
+      - name: Download Models
+        run: |
+          mkdir -p Resources/models
+          curl -L -o Resources/models/rmvpe.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/rmvpe.onnx"
+          curl -L -o Resources/models/some.onnx "https://github.com/mdkrain/HachiTune/releases/download/Resources%2Fmodels/some.onnx"
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_GPU=ON
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
+
+      - name: Prepare Package
+        run: |
+          mkdir -p package/HachiTune
+          
+          # Copy standalone app
+          cp -R build/PitchEditor_artefacts/${{ env.BUILD_TYPE }}/* package/HachiTune/
+          
+          # Copy VST3 plugin
+          if [ -d "build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3" ]; then
+            cp -R build/PitchEditorPlugin_artefacts/${{ env.BUILD_TYPE }}/VST3 package/HachiTune/
+          fi
+          
+          # Create launch script
+          cat > package/HachiTune/run.sh << 'EOF'
+          #!/bin/bash
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export LD_LIBRARY_PATH="$SCRIPT_DIR:$LD_LIBRARY_PATH"
+          exec "$SCRIPT_DIR/HachiTune" "$@"
+          EOF
+          chmod +x package/HachiTune/run.sh
+          
+          # Create tarball
+          cd package
+          tar -czvf ../HachiTune-Linux-GPU.tar.gz HachiTune
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HachiTune-Linux-GPU
+          path: HachiTune-Linux-GPU.tar.gz
+          retention-days: 30
+
+  # ===========================================
+  # Create Release
+  # ===========================================
   release:
-    needs: [build-windows-cpu, build-windows-directml, build-windows-cuda, build-linux]
+    name: Create Release
+    needs:
+      - build-windows-cpu
+      - build-windows-directml
+      - build-windows-cuda
+      - build-macos
+      - build-linux
+      - build-linux-gpu
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
-      - name: Download all artifacts
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Prepare release files
+      - name: Prepare Release Files
         run: |
           cd artifacts
-          [ -d "PitchEditor-Windows-CPU" ] && zip -r PitchEditor-Windows-CPU.zip PitchEditor-Windows-CPU || true
-          [ -d "PitchEditor-Windows-DirectML" ] && zip -r PitchEditor-Windows-DirectML.zip PitchEditor-Windows-DirectML || true
-          [ -d "PitchEditor-Windows-CUDA" ] && zip -r PitchEditor-Windows-CUDA.zip PitchEditor-Windows-CUDA || true
-          [ -d "PitchEditor-Linux" ] && mv PitchEditor-Linux/*.tar.gz . || true
+          
+          # Windows packages
+          if [ -d "HachiTune-Windows-CPU" ]; then
+            cd HachiTune-Windows-CPU && zip -r ../HachiTune-Windows-CPU.zip . && cd ..
+          fi
+          
+          if [ -d "HachiTune-Windows-DirectML" ]; then
+            cd HachiTune-Windows-DirectML && zip -r ../HachiTune-Windows-DirectML.zip . && cd ..
+          fi
+          
+          if [ -d "HachiTune-Windows-CUDA" ]; then
+            cd HachiTune-Windows-CUDA && zip -r ../HachiTune-Windows-CUDA.zip . && cd ..
+          fi
+          
+          # macOS DMG is already ready
+          if [ -d "HachiTune-macOS" ]; then
+            mv HachiTune-macOS/*.dmg ./HachiTune-macOS.dmg || true
+          fi
+          
+          # macOS App ZIP is already ready
+          if [ -d "HachiTune-macOS-App" ]; then
+            mv HachiTune-macOS-App/*.zip ./HachiTune-macOS-App.zip || true
+          fi
+          
+          # Linux tarballs are already ready
+          if [ -d "HachiTune-Linux" ]; then
+            mv HachiTune-Linux/*.tar.gz ./HachiTune-Linux.tar.gz || true
+          fi
+          
+          if [ -d "HachiTune-Linux-GPU" ]; then
+            mv HachiTune-Linux-GPU/*.tar.gz ./HachiTune-Linux-GPU.tar.gz || true
+          fi
+          
+          ls -la
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/PitchEditor-Windows-CPU.zip
-            artifacts/PitchEditor-Windows-DirectML.zip
-            artifacts/PitchEditor-Windows-CUDA.zip
-            artifacts/PitchEditor-Linux.tar.gz
-          draft: false
-          prerelease: false
+            artifacts/HachiTune-Windows-CPU.zip
+            artifacts/HachiTune-Windows-DirectML.zip
+            artifacts/HachiTune-Windows-CUDA.zip
+            artifacts/HachiTune-macOS.dmg
+            artifacts/HachiTune-macOS-App.zip
+            artifacts/HachiTune-Linux.tar.gz
+            artifacts/HachiTune-Linux-GPU.tar.gz
+          draft: true
           generate_release_notes: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
