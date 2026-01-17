@@ -1,0 +1,40 @@
+# Build directories
+build/
+cmake-build-*/
+
+# JUCE is now a git submodule in third_party/
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.vcxproj.user
+
+# macOS
+.DS_Store
+*.xcodeproj/
+*.xcworkspace/
+
+# Compiled files
+*.o
+*.obj
+*.exe
+*.dll
+*.dylib
+*.so
+*.a
+
+# Temporary files
+*.tmp
+*.log
+
+**/__pycache__/
+Resources/models/*.onnx
+Resources/models/*.bin
+
+tempcalude-*
+.claude
