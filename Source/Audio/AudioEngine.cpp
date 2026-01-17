@@ -112,7 +112,14 @@ void AudioEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferTo
         inputSamplesAvailable,
         0  // No wrap
     );
-    
+
+    // Apply volume gain (lock-free read)
+    float gain = volumeGain.load();
+    if (std::abs(gain - 1.0f) > 0.0001f)  // Only apply if not unity gain
+    {
+        juce::FloatVectorOperations::multiply(outputData, gain, numOutputSamples);
+    }
+
     // Update position
     int64_t newPos = pos + samplesUsed;
     currentPosition.store(newPos);
@@ -163,7 +170,10 @@ void AudioEngine::loadWaveform(const juce::AudioBuffer<float>& buffer, int sampl
 
     DBG("AudioEngine::loadWaveform called - this=" << juce::String::toHexString(reinterpret_cast<uintptr_t>(this)));
 
-    // Stop playback first
+    // Save playing state if we need to preserve it
+    bool wasPlaying = playing.load();
+
+    // Stop playback first to safely update waveform
     playing = false;
 
     // Wait a bit for audio thread to notice
@@ -186,6 +196,12 @@ void AudioEngine::loadWaveform(const juce::AudioBuffer<float>& buffer, int sampl
             playbackRatio = 1.0;
 
         interpolator.reset();
+    }
+
+    // Restore playing state if preserving position (e.g., during incremental synthesis)
+    if (preservePosition && wasPlaying) {
+        playing = true;
+        DBG("Restored playback state after waveform update");
     }
 
     DBG("Loaded waveform: " + juce::String(buffer.getNumSamples()) + " samples at " +
@@ -249,4 +265,19 @@ double AudioEngine::getDuration() const
     if (currentWaveform.getNumSamples() == 0)
         return 0.0;
     return static_cast<double>(currentWaveform.getNumSamples()) / waveformSampleRate;
+}
+
+void AudioEngine::setVolumeDb(float dB)
+{
+    // Clamp dB to range: -12 dB to +12 dB (symmetric around 0)
+    dB = juce::jlimit(-12.0f, 12.0f, dB);
+    // Convert dB to linear gain: gain = 10^(dB/20)
+    float gain = juce::Decibels::decibelsToGain(dB, -60.0f);
+    volumeGain.store(gain);
+}
+
+float AudioEngine::getVolumeDb() const
+{
+    float gain = volumeGain.load();
+    return juce::Decibels::gainToDecibels(gain, -60.0f);
 }

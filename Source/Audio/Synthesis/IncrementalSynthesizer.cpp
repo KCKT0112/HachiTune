@@ -11,8 +11,73 @@ void IncrementalSynthesizer::cancel() {
         cancelFlag->store(true);
 }
 
-void IncrementalSynthesizer::synthesizeDirtyRegion(ProgressCallback onProgress,
-                                                   CompleteCallback onComplete) {
+std::pair<int, int> IncrementalSynthesizer::expandToSilenceBoundaries(int dirtyStart, int dirtyEnd) {
+    if (!project) return {dirtyStart, dirtyEnd};
+
+    auto& voicedMask = project->getAudioData().voicedMask;
+    const int totalFrames = static_cast<int>(voicedMask.size());
+
+    if (totalFrames == 0) return {dirtyStart, dirtyEnd};
+
+    const int minSilenceFrames = 5;  // Minimum silence gap to consider as boundary
+
+    // Helper: check if frame is voiced
+    auto isVoiced = [&](int i) {
+        return i >= 0 && i < totalFrames && voicedMask[i];
+    };
+
+    // Expand start backwards to find silence boundary
+    int expandedStart = dirtyStart;
+    int silenceCount = 0;
+    for (int i = dirtyStart - 1; i >= 0; --i) {
+        if (!isVoiced(i)) {
+            silenceCount++;
+            if (silenceCount >= minSilenceFrames) {
+                // Found silence boundary
+                expandedStart = i + silenceCount;
+                break;
+            }
+        } else {
+            silenceCount = 0;
+            expandedStart = i;
+        }
+    }
+    if (expandedStart > dirtyStart) expandedStart = dirtyStart;
+    if (silenceCount < minSilenceFrames && expandedStart > 0) {
+        // Didn't find silence, expand to beginning
+        expandedStart = 0;
+    }
+
+    // Expand end forwards to find silence boundary
+    int expandedEnd = dirtyEnd;
+    silenceCount = 0;
+    for (int i = dirtyEnd; i < totalFrames; ++i) {
+        if (!isVoiced(i)) {
+            silenceCount++;
+            if (silenceCount >= minSilenceFrames) {
+                // Found silence boundary
+                expandedEnd = i - silenceCount + 1;
+                break;
+            }
+        } else {
+            silenceCount = 0;
+            expandedEnd = i + 1;
+        }
+    }
+    if (expandedEnd < dirtyEnd) expandedEnd = dirtyEnd;
+    if (silenceCount < minSilenceFrames && expandedEnd < totalFrames) {
+        // Didn't find silence, expand to end
+        expandedEnd = totalFrames;
+    }
+
+    DBG("expandToSilenceBoundaries: [" << dirtyStart << ", " << dirtyEnd <<
+        "] -> [" << expandedStart << ", " << expandedEnd << "]");
+
+    return {expandedStart, expandedEnd};
+}
+
+void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
+                                               CompleteCallback onComplete) {
     if (!project || !vocoder) {
         if (onComplete) onComplete(false);
         return;
@@ -41,10 +106,17 @@ void IncrementalSynthesizer::synthesizeDirtyRegion(ProgressCallback onProgress,
         return;
     }
 
-    // Add padding for smooth transitions
-    int startFrame = std::max(0, dirtyStart - paddingFrames);
-    int endFrame = std::min(static_cast<int>(audioData.melSpectrogram.size()),
-                            dirtyEnd + paddingFrames);
+    // Expand to silence boundaries (no padding, no crossfade)
+    auto [startFrame, endFrame] = expandToSilenceBoundaries(dirtyStart, dirtyEnd);
+
+    // Clamp to valid range
+    startFrame = std::max(0, startFrame);
+    endFrame = std::min(static_cast<int>(audioData.melSpectrogram.size()), endFrame);
+
+    if (startFrame >= endFrame) {
+        if (onComplete) onComplete(false);
+        return;
+    }
 
     // Extract mel spectrogram range
     std::vector<std::vector<float>> melRange(
@@ -69,23 +141,20 @@ void IncrementalSynthesizer::synthesizeDirtyRegion(ProgressCallback onProgress,
 
     isBusy = true;
 
-    // Calculate sample positions
     int hopSize = vocoder->getHopSize();
-    int startSample = startFrame * hopSize;
-    int endSample = endFrame * hopSize;
+    int capturedStartFrame = startFrame;
 
     // Capture for lambda
     auto capturedCancelFlag = cancelFlag;
     auto capturedProject = project;
-    int capturedStartSample = startSample;
-    int capturedEndSample = endSample;
-    int capturedHopSize = hopSize;
+
+    DBG("synthesizeRegion: frames [" << startFrame << ", " << endFrame << "]");
 
     // Run vocoder inference asynchronously
     vocoder->inferAsync(
         melRange, adjustedF0Range,
-        [this, capturedCancelFlag, capturedProject, capturedStartSample, capturedEndSample,
-         capturedHopSize, currentJobId, onComplete](std::vector<float> synthesizedAudio) {
+        [this, capturedCancelFlag, capturedProject, capturedStartFrame, hopSize,
+         currentJobId, onComplete](std::vector<float> synthesizedAudio) {
 
             // Check if cancelled or superseded
             if (capturedCancelFlag->load() || currentJobId != jobId.load()) {
@@ -102,53 +171,29 @@ void IncrementalSynthesizer::synthesizeDirtyRegion(ProgressCallback onProgress,
 
             auto& audioData = capturedProject->getAudioData();
             int totalSamples = audioData.waveform.getNumSamples();
-
-            // Verify output length
-            int expectedSamples = capturedEndSample - capturedStartSample;
-            int actualSamples = static_cast<int>(synthesizedAudio.size());
-
-            if (std::abs(actualSamples - expectedSamples) > capturedHopSize * 2) {
-                isBusy = false;
-                if (onComplete) onComplete(false);
-                return;
-            }
-
-            // Apply synthesized audio with crossfade
-            int replaceStartSample = capturedStartSample;
-            int replaceSamples = std::min(actualSamples, totalSamples - replaceStartSample);
-
-            if (replaceSamples <= 0) {
-                isBusy = false;
-                if (onComplete) onComplete(false);
-                return;
-            }
-
             int numChannels = audioData.waveform.getNumChannels();
-            int crossfadeSamples = paddingFrames * capturedHopSize / 2;
-            crossfadeSamples = std::min(crossfadeSamples, actualSamples / 4);
 
-            for (int i = 0; i < replaceSamples && (replaceStartSample + i) < totalSamples; ++i) {
-                int dstIdx = replaceStartSample + i;
+            int startSample = capturedStartFrame * hopSize;
+            int samplesToReplace = static_cast<int>(synthesizedAudio.size());
+            samplesToReplace = std::min(samplesToReplace, totalSamples - startSample);
+
+            if (samplesToReplace <= 0) {
+                isBusy = false;
+                if (onComplete) onComplete(false);
+                return;
+            }
+
+            // Direct replacement - no crossfade
+            for (int i = 0; i < samplesToReplace; ++i) {
+                int dstIdx = startSample + i;
                 float srcVal = synthesizedAudio[i];
-
-                // Calculate crossfade factor
-                float factor = 1.0f;
-                if (i < crossfadeSamples && replaceStartSample > 0) {
-                    factor = static_cast<float>(i) / crossfadeSamples;
-                } else if (i >= replaceSamples - crossfadeSamples &&
-                           (replaceStartSample + replaceSamples) < totalSamples) {
-                    factor = static_cast<float>(replaceSamples - 1 - i) / crossfadeSamples;
-                }
-
                 for (int ch = 0; ch < numChannels; ++ch) {
                     float* dstCh = audioData.waveform.getWritePointer(ch);
-                    if (factor < 1.0f) {
-                        dstCh[dstIdx] = dstCh[dstIdx] * (1.0f - factor) + srcVal * factor;
-                    } else {
-                        dstCh[dstIdx] = srcVal;
-                    }
+                    dstCh[dstIdx] = srcVal;
                 }
             }
+
+            DBG("synthesizeRegion: replaced " << samplesToReplace << " samples at " << startSample);
 
             // Clear dirty flags
             capturedProject->clearAllDirty();
@@ -156,33 +201,4 @@ void IncrementalSynthesizer::synthesizeDirtyRegion(ProgressCallback onProgress,
             isBusy = false;
             if (onComplete) onComplete(true);
         });
-}
-
-void IncrementalSynthesizer::applyCrossfade(juce::AudioBuffer<float>& waveform,
-                                            const std::vector<float>& synthesized,
-                                            int startSample, int crossfadeSamples) {
-    int numChannels = waveform.getNumChannels();
-    int totalSamples = waveform.getNumSamples();
-    int synthSize = static_cast<int>(synthesized.size());
-
-    for (int i = 0; i < synthSize && (startSample + i) < totalSamples; ++i) {
-        int dstIdx = startSample + i;
-        float srcVal = synthesized[i];
-
-        float factor = 1.0f;
-        if (i < crossfadeSamples && startSample > 0) {
-            factor = static_cast<float>(i) / crossfadeSamples;
-        } else if (i >= synthSize - crossfadeSamples && (startSample + synthSize) < totalSamples) {
-            factor = static_cast<float>(synthSize - 1 - i) / crossfadeSamples;
-        }
-
-        for (int ch = 0; ch < numChannels; ++ch) {
-            float* dst = waveform.getWritePointer(ch);
-            if (factor < 1.0f) {
-                dst[dstIdx] = dst[dstIdx] * (1.0f - factor) + srcVal * factor;
-            } else {
-                dst[dstIdx] = srcVal;
-            }
-        }
-    }
 }

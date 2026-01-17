@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
+#include <cmath>
 
 /**
  * Shared dark theme LookAndFeel for the application.
@@ -127,6 +128,79 @@ public:
         setText(text, juce::dontSendNotification);
         setColour(juce::Label::textColourId, juce::Colour(COLOR_PRIMARY));
         setFont(juce::Font(14.0f, juce::Font::bold));
+    }
+};
+
+/**
+ * VST-style 3D knob LookAndFeel.
+ * Draws a realistic rotary knob with metallic appearance and pointer indicator.
+ */
+class KnobLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    KnobLookAndFeel() = default;
+
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
+                          float sliderPosProportional, float rotaryStartAngle,
+                          float rotaryEndAngle, juce::Slider& slider) override
+    {
+        const float diameter = static_cast<float>(juce::jmin(width, height));
+        const float radius = (diameter / 2.0f) - 4.0f;
+        const float centreX = static_cast<float>(x) + static_cast<float>(width) * 0.5f;
+        const float centreY = static_cast<float>(y) + static_cast<float>(height) * 0.5f;
+        const float angle = rotaryStartAngle + sliderPosProportional * (rotaryEndAngle - rotaryStartAngle);
+
+        const bool isEnabled = slider.isEnabled();
+        const float alpha = isEnabled ? 1.0f : 0.4f;
+
+        // === Outer track ring ===
+        const float trackRadius = radius + 2.0f;
+        g.setColour(juce::Colour(0xFF1E1E26).withAlpha(alpha));
+        g.drawEllipse(centreX - trackRadius, centreY - trackRadius,
+                      trackRadius * 2.0f, trackRadius * 2.0f, 3.0f);
+
+        // === Knob body ===
+        const float knobRadius = radius * 0.85f;
+
+        // Outer shadow
+        g.setColour(juce::Colour(0xFF0A0A0E).withAlpha(alpha * 0.5f));
+        g.fillEllipse(centreX - knobRadius - 1.0f, centreY - knobRadius + 2.0f,
+                      knobRadius * 2.0f + 2.0f, knobRadius * 2.0f + 2.0f);
+
+        // Main knob body - gradient from top-left to bottom-right
+        juce::ColourGradient bodyGradient(
+            juce::Colour(0xFF5A5A65).withAlpha(alpha), centreX - knobRadius * 0.7f, centreY - knobRadius * 0.7f,
+            juce::Colour(0xFF28282F).withAlpha(alpha), centreX + knobRadius * 0.7f, centreY + knobRadius * 0.7f, false);
+        g.setGradientFill(bodyGradient);
+        g.fillEllipse(centreX - knobRadius, centreY - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f);
+
+        // Inner bevel / rim
+        g.setColour(juce::Colour(0xFF3A3A44).withAlpha(alpha));
+        g.drawEllipse(centreX - knobRadius + 1.5f, centreY - knobRadius + 1.5f,
+                      (knobRadius - 1.5f) * 2.0f, (knobRadius - 1.5f) * 2.0f, 1.0f);
+
+        // === Pointer line ===
+        const float pointerLength = knobRadius * 0.6f;
+        const float pointerStartRadius = knobRadius * 0.2f;
+
+        juce::Path pointer;
+        pointer.startNewSubPath(0.0f, -pointerStartRadius);
+        pointer.lineTo(0.0f, -pointerLength);
+
+        g.setColour(juce::Colour(COLOR_PRIMARY).withAlpha(alpha));
+        g.strokePath(pointer, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                     juce::AffineTransform::rotation(angle).translated(centreX, centreY));
+
+        // Small dot at pointer tip
+        float tipX = centreX + std::sin(angle) * (pointerLength - 2.0f);
+        float tipY = centreY - std::cos(angle) * (pointerLength - 2.0f);
+        g.fillEllipse(tipX - 2.5f, tipY - 2.5f, 5.0f, 5.0f);
+    }
+
+    static KnobLookAndFeel& getInstance()
+    {
+        static KnobLookAndFeel instance;
+        return instance;
     }
 };
 

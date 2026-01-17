@@ -262,6 +262,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
   parameterPanel.onGlobalPitchChanged = [this]() {
     pianoRoll.repaint(); // Update display
   };
+  parameterPanel.onVolumeChanged = [this](float dB) {
+    if (audioEngine)
+      audioEngine->setVolumeDb(dB);
+  };
   parameterPanel.setProject(project.get());
 
   // Setup audio engine callbacks
@@ -1180,235 +1184,59 @@ void MainComponent::resynthesizeIncremental() {
     return;
   }
 
-  DBG("  Proceeding with synthesis: frames " + juce::String(dirtyStart) +
+  DBG("  Proceeding with synthesis: dirty frames " + juce::String(dirtyStart) +
       " to " + juce::String(dirtyEnd));
 
-  // Add padding frames for smooth transitions (vocoder needs context)
-  // Increased padding for better quality and smoother transitions
-  const int paddingFrames = 30; // Increased from 10 to 30 for better context
-  int startFrame = std::max(0, dirtyStart - paddingFrames);
-  int endFrame = std::min(static_cast<int>(audioData.melSpectrogram.size()),
-                          dirtyEnd + paddingFrames);
-
-  // Extract mel spectrogram range
-  std::vector<std::vector<float>> melRange(
-      audioData.melSpectrogram.begin() + startFrame,
-      audioData.melSpectrogram.begin() + endFrame);
-
-  // Get adjusted F0 for range
-  std::vector<float> adjustedF0Range =
-      project->getAdjustedF0ForRange(startFrame, endFrame);
-
-  if (melRange.empty() || adjustedF0Range.empty())
-    return;
+  // Setup incrementalSynth
+  incrementalSynth->setProject(project.get());
+  incrementalSynth->setVocoder(vocoder.get());
 
   // Show progress during synthesis
   toolbar.showProgress(TR("progress.synthesizing"));
-  toolbar.setProgress(-1.0f); // Indeterminate progress
+  toolbar.setProgress(-1.0f);  // Indeterminate progress
 
   // Disable toolbar during synthesis
   toolbar.setEnabled(false);
-
-  // Calculate sample positions
-  int hopSize = vocoder->getHopSize();
-  int startSample = startFrame * hopSize;
-  int endSample = endFrame * hopSize;
-
-  // Store frame range for callback
-  int capturedStartSample = startSample;
-  int capturedEndSample = endSample;
-  int capturedPaddingFrames = paddingFrames;
-  int capturedHopSize = hopSize;
 
   // Use SafePointer to prevent accessing destroyed component
   juce::Component::SafePointer<MainComponent> safeThis(this);
 
   // Capture audioEngine pointer for async callback (only if not in plugin mode)
-  // IMPORTANT: In plugin mode, audioEngine is nullptr, so we should not capture
-  // it
   AudioEngine *audioEnginePtr = nullptr;
   if (!isPluginMode() && audioEngine) {
     audioEnginePtr = audioEngine.get();
   }
 
-  // Cancel any previous in-flight incremental synthesis (drop its result)
-  if (incrementalCancelFlag)
-    incrementalCancelFlag->store(true);
-  incrementalCancelFlag = std::make_shared<std::atomic<bool>>(false);
-  uint64_t jobId = ++incrementalJobId;
-
-  // Run vocoder inference asynchronously (coalesced)
-  vocoder->inferAsync(
-      melRange, adjustedF0Range,
-      [safeThis, audioEnginePtr, capturedStartSample, capturedEndSample,
-       capturedPaddingFrames, capturedHopSize,
-       sampleRate = audioData.sampleRate,
-       jobId](std::vector<float> synthesizedAudio) {
-        // Check if component still exists
-        if (safeThis == nullptr)
-          return;
-
-        // If a newer job is in flight, drop this result
-        if (jobId != safeThis->incrementalJobId.load())
-          return;
+  // Run synthesis (expands to silence boundaries, no padding, no crossfade)
+  incrementalSynth->synthesizeRegion(
+      // Progress callback
+      [safeThis](const juce::String& message) {
+        if (safeThis == nullptr) return;
+        safeThis->toolbar.showProgress(message);
+      },
+      // Complete callback
+      [safeThis, audioEnginePtr](bool success) {
+        if (safeThis == nullptr) return;
 
         safeThis->toolbar.setEnabled(true);
+        safeThis->toolbar.hideProgress();
 
-        if (synthesizedAudio.empty()) {
-          safeThis->toolbar.hideProgress();
+        if (!success) {
+          DBG("resynthesizeIncremental: Synthesis failed or was cancelled");
           return;
-        }
-
-        auto &audioData = safeThis->project->getAudioData();
-        int totalSamples = audioData.waveform.getNumSamples();
-
-        // CRITICAL: Verify vocoder output length matches expected length
-        int expectedSamples = capturedEndSample - capturedStartSample;
-        int actualSamples = static_cast<int>(synthesizedAudio.size());
-
-        if (actualSamples != expectedSamples) {
-          DBG("WARNING: Vocoder output length mismatch!");
-          DBG("  Expected: " + juce::String(expectedSamples) + " samples");
-          DBG("  Actual: " + juce::String(actualSamples) + " samples");
-          DBG("  Difference: " + juce::String(actualSamples - expectedSamples) +
-              " samples");
-
-          // If the difference is too large, skip this synthesis to avoid
-          // corruption
-          if (std::abs(actualSamples - expectedSamples) > capturedHopSize * 2) {
-            DBG("  Difference too large, skipping synthesis");
-            safeThis->toolbar.hideProgress();
-            return;
-          }
-        }
-
-        // Direct replacement without crossfade to avoid phase issues
-        // The vocoder output includes padding context, so we replace the entire
-        // synthesized region directly
-
-        // Replace entire synthesized range (including padding for seamless splice)
-        int replaceStartSample = capturedStartSample;
-        int replaceSamples = std::min(actualSamples, totalSamples - replaceStartSample);
-
-        if (replaceSamples <= 0) {
-          safeThis->toolbar.hideProgress();
-          return;
-        }
-
-        // Apply crossfade at boundaries to avoid pops/clicks
-        // Only replace the middle portion directly, crossfade at edges
-        int numChannels = audioData.waveform.getNumChannels();
-        int crossfadeSamples = capturedPaddingFrames * capturedHopSize / 2; // Half of padding for crossfade
-        crossfadeSamples = std::min(crossfadeSamples, actualSamples / 4); // Don't exceed 1/4 of total
-
-        for (int i = 0; i < replaceSamples && (replaceStartSample + i) < totalSamples; ++i) {
-          int dstIdx = replaceStartSample + i;
-          float srcVal = synthesizedAudio[i];
-
-          // Calculate crossfade factor
-          float factor = 1.0f;
-          if (i < crossfadeSamples && replaceStartSample > 0) {
-            // Fade in at start
-            factor = static_cast<float>(i) / crossfadeSamples;
-          } else if (i >= replaceSamples - crossfadeSamples && (replaceStartSample + replaceSamples) < totalSamples) {
-            // Fade out at end
-            factor = static_cast<float>(replaceSamples - 1 - i) / crossfadeSamples;
-          }
-
-          for (int ch = 0; ch < numChannels; ++ch) {
-            float *dstCh = audioData.waveform.getWritePointer(ch);
-            if (factor < 1.0f) {
-              // Crossfade: blend original and synthesized
-              dstCh[dstIdx] = dstCh[dstIdx] * (1.0f - factor) + srcVal * factor;
-            } else {
-              dstCh[dstIdx] = srcVal;
-            }
-          }
         }
 
         // Reload waveform in audio engine (standalone mode only)
-        // CRITICAL: In plugin mode, audioEngine is nullptr and should NEVER be
-        // accessed
-        // IMPORTANT: Use captured audioEnginePtr instead of accessing through
-        // safeThis This avoids accessing destroyed object through unique_ptr
-        if (safeThis && audioEnginePtr) {
-          // CRITICAL FIRST CHECK: Never call loadWaveform in plugin mode
-          // This is the most important check - if we're in plugin mode,
-          // audioEngine doesn't exist
-          if (safeThis->isPluginMode()) {
-            DBG("MainComponent::resynthesizeIncremental - CRITICAL: Attempted "
-                "to "
-                "call loadWaveform in plugin mode! This should never happen. "
-                "audioEnginePtr="
-                << juce::String::toHexString(
-                       reinterpret_cast<uintptr_t>(audioEnginePtr)));
-            jassertfalse; // This should never happen - helps catch bugs
-            return;       // Early return to prevent crash
-          }
-
-          // Double-check audioEnginePtr is still valid (compare with current
-          // audioEngine) Only proceed if we're not in plugin mode and
-          // audioEngine still exists
-          if (safeThis->audioEngine &&
-              safeThis->audioEngine.get() == audioEnginePtr) {
-            // CRITICAL: Validate pointer before calling
-            // Check if the pointer is still valid by comparing addresses
-            AudioEngine *currentEngine = safeThis->audioEngine.get();
-            if (currentEngine == audioEnginePtr && currentEngine != nullptr) {
-              DBG("MainComponent::resynthesizeIncremental - calling "
-                  "loadWaveform, "
-                  "engine="
-                  << juce::String::toHexString(
-                         reinterpret_cast<uintptr_t>(audioEnginePtr)));
-              try {
-                audioEnginePtr->loadWaveform(audioData.waveform,
-                                             audioData.sampleRate, true);
-              } catch (...) {
-                DBG("MainComponent::resynthesizeIncremental - EXCEPTION in "
-                    "loadWaveform!");
-              }
-            } else {
-              DBG("MainComponent::resynthesizeIncremental - audioEnginePtr is "
-                  "invalid! "
-                  "currentEngine="
-                  << juce::String::toHexString(
-                         reinterpret_cast<uintptr_t>(currentEngine))
-                  << " audioEnginePtr="
-                  << juce::String::toHexString(
-                         reinterpret_cast<uintptr_t>(audioEnginePtr)));
+        if (audioEnginePtr && !safeThis->isPluginMode()) {
+          if (safeThis->audioEngine && safeThis->audioEngine.get() == audioEnginePtr) {
+            auto& audioData = safeThis->project->getAudioData();
+            try {
+              audioEnginePtr->loadWaveform(audioData.waveform, audioData.sampleRate, true);
+            } catch (...) {
+              DBG("resynthesizeIncremental: EXCEPTION in loadWaveform!");
             }
-          } else {
-            DBG("MainComponent::resynthesizeIncremental - skipping "
-                "loadWaveform: "
-                "audioEngine exists="
-                << (safeThis->audioEngine ? "true" : "false")
-                << " pointers match="
-                << (safeThis->audioEngine &&
-                            safeThis->audioEngine.get() == audioEnginePtr
-                        ? "true"
-                        : "false"));
-          }
-        } else {
-          // This is normal in plugin mode - audioEnginePtr should be nullptr
-          if (safeThis && safeThis->isPluginMode()) {
-            // This is expected - no need to log
-          } else {
-            DBG("MainComponent::resynthesizeIncremental - skipping "
-                "loadWaveform: "
-                "safeThis="
-                << (safeThis ? "valid" : "null") << " audioEnginePtr="
-                << (audioEnginePtr
-                        ? juce::String::toHexString(
-                              reinterpret_cast<uintptr_t>(audioEnginePtr))
-                        : "null"));
           }
         }
-
-        // Clear dirty flags after successful synthesis
-        safeThis->project->clearAllDirty();
-
-        // Hide progress bar
-        safeThis->toolbar.hideProgress();
 
         // Repaint piano roll to show updated waveform
         safeThis->pianoRoll.repaint();

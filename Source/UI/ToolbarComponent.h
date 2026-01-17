@@ -111,7 +111,7 @@ private:
     
     juce::Slider zoomSlider;
     juce::Label zoomLabel { {}, "Zoom:" };
-    
+
     // Progress components
     double progressValue = 0.0;  // Must be declared before progressBar
     juce::ProgressBar progressBar { progressValue };

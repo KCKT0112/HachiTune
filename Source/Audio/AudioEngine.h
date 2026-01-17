@@ -47,6 +47,10 @@ public:
     juce::AudioDeviceManager& getDeviceManager() { return deviceManager; }
     void initializeAudio();
     void shutdownAudio();
+
+    // Volume control (dB, -60 to +12)
+    void setVolumeDb(float dB);
+    float getVolumeDb() const;
     
 private:
     juce::AudioDeviceManager deviceManager;
@@ -72,6 +76,9 @@ private:
 
     // Thread safety for waveform updates
     juce::SpinLock waveformLock;
-    
+
+    // Volume control (linear gain, lock-free for audio thread)
+    std::atomic<float> volumeGain { 1.0f };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioEngine)
 };

@@ -32,6 +32,7 @@ public:
     std::function<void()> onParameterChanged;
     std::function<void()> onParameterEditFinished;  // Called when slider drag ends
     std::function<void()> onGlobalPitchChanged;
+    std::function<void(float)> onVolumeChanged;  // Called with volume in dB
     
 private:
     void setupSlider(juce::Slider& slider, juce::Label& label,
@@ -49,19 +50,11 @@ private:
     juce::Slider pitchOffsetSlider;
     juce::Label pitchOffsetLabel { {}, "Offset (semitones):" };
 
-    // Vibrato controls
-    juce::Label vibratoSectionLabel { {}, "Vibrato" };
-    juce::ToggleButton vibratoEnableButton { "Enable" };
-    juce::Slider vibratoRateSlider;
-    juce::Label vibratoRateLabel { {}, "Rate (Hz):" };
-    juce::Slider vibratoDepthSlider;
-    juce::Label vibratoDepthLabel { {}, "Depth (semitones):" };
-    
-    // Future parameters
+    // Volume control (using rotary knob style)
     juce::Label volumeSectionLabel { {}, "Volume" };
-    juce::Slider volumeSlider;
-    juce::Label volumeLabel { {}, "Gain (dB):" };
-    
+    juce::Slider volumeKnob;
+    juce::Label volumeValueLabel;  // Shows current dB value
+
     juce::Label formantSectionLabel { {}, "Formant" };
     juce::Slider formantShiftSlider;
     juce::Label formantShiftLabel { {}, "Shift (semitones):" };

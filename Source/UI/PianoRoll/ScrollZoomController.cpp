@@ -109,40 +109,38 @@ void ScrollZoomController::handleMouseWheel(const juce::MouseEvent& e, const juc
         return;
     }
 
-    // Key-based zoom
+    // Key-based zoom: XY simultaneous (like other DAWs)
     if (e.mods.isCommandDown() || e.mods.isCtrlDown()) {
         float zoomFactor = 1.0f + wheel.deltaY * 0.3f;
 
-        if (e.mods.isShiftDown()) {
-            // Vertical zoom
-            float mouseY = static_cast<float>(e.y - timelineHeight);
-            float midiAtMouse = (mouseY + static_cast<float>(coordMapper->getScrollY())) / coordMapper->getPixelsPerSemitone();
+        // Calculate mouse position relative to content area
+        float mouseX = static_cast<float>(e.x - pianoKeysWidth);
+        float mouseY = static_cast<float>(e.y - timelineHeight);
 
-            float newPps = coordMapper->getPixelsPerSemitone() * zoomFactor;
-            newPps = juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE, newPps);
+        // Get current position under mouse
+        double timeAtMouse = coordMapper->xToTime(mouseX + static_cast<float>(coordMapper->getScrollX()));
+        float midiAtMouse = (mouseY + static_cast<float>(coordMapper->getScrollY())) / coordMapper->getPixelsPerSemitone();
 
-            float newMouseY = coordMapper->midiToY(midiAtMouse);
-            coordMapper->setScrollY(std::max(0.0, static_cast<double>(newMouseY - mouseY)));
-            coordMapper->setPixelsPerSemitone(newPps);
+        // Apply horizontal zoom
+        float newPpsX = coordMapper->getPixelsPerSecond() * zoomFactor;
+        newPpsX = juce::jlimit(MIN_PIXELS_PER_SECOND, MAX_PIXELS_PER_SECOND, newPpsX);
+        coordMapper->setPixelsPerSecond(newPpsX);
 
-            updateScrollBars(componentWidth - pianoKeysWidth - 14, componentHeight - 14);
-            if (onRepaintNeeded) onRepaintNeeded();
-        } else {
-            // Horizontal zoom
-            float mouseX = static_cast<float>(e.x - pianoKeysWidth);
-            double timeAtMouse = coordMapper->xToTime(mouseX + static_cast<float>(coordMapper->getScrollX()));
+        // Apply vertical zoom
+        float newPpsY = coordMapper->getPixelsPerSemitone() * zoomFactor;
+        newPpsY = juce::jlimit(MIN_PIXELS_PER_SEMITONE, MAX_PIXELS_PER_SEMITONE, newPpsY);
+        coordMapper->setPixelsPerSemitone(newPpsY);
 
-            float newPps = coordMapper->getPixelsPerSecond() * zoomFactor;
-            newPps = juce::jlimit(MIN_PIXELS_PER_SECOND, MAX_PIXELS_PER_SECOND, newPps);
+        // Adjust scroll to keep mouse position stable
+        float newMouseX = static_cast<float>(timeAtMouse * newPpsX);
+        coordMapper->setScrollX(std::max(0.0, static_cast<double>(newMouseX - mouseX)));
 
-            float newMouseX = static_cast<float>(timeAtMouse * newPps);
-            coordMapper->setScrollX(std::max(0.0, static_cast<double>(newMouseX - mouseX)));
-            coordMapper->setPixelsPerSecond(newPps);
+        double newScrollY = midiAtMouse * newPpsY - mouseY;
+        coordMapper->setScrollY(std::max(0.0, newScrollY));
 
-            updateScrollBars(componentWidth - pianoKeysWidth - 14, componentHeight - 14);
-            if (onRepaintNeeded) onRepaintNeeded();
-            if (onZoomChanged) onZoomChanged(newPps);
-        }
+        updateScrollBars(componentWidth - pianoKeysWidth - 14, componentHeight - 14);
+        if (onRepaintNeeded) onRepaintNeeded();
+        if (onZoomChanged) onZoomChanged(newPpsX);
     }
 }
 

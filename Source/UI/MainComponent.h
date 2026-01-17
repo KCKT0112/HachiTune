@@ -167,9 +167,5 @@ private:
   juce::ComponentDragger dragger;
 #endif
 
-  // Incremental synthesis cancellation / coalescing
-  std::shared_ptr<std::atomic<bool>> incrementalCancelFlag;
-  std::atomic<uint64_t> incrementalJobId{0};
-
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

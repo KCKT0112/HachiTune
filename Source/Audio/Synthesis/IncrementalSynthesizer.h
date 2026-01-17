@@ -6,10 +6,12 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <vector>
 
 /**
- * Handles incremental audio synthesis for edited regions.
- * Uses vocoder to resynthesize only the dirty (modified) portions of audio.
+ * Handles audio synthesis for edited regions.
+ * Uses vocoder to resynthesize dirty (modified) portions of audio.
+ * Expands dirty region to nearest silence boundaries for clean cuts.
  */
 class IncrementalSynthesizer {
 public:
@@ -22,8 +24,14 @@ public:
     void setVocoder(Vocoder* v) { vocoder = v; }
     void setProject(Project* p) { project = p; }
 
-    // Synthesize dirty regions
-    void synthesizeDirtyRegion(ProgressCallback onProgress, CompleteCallback onComplete);
+    /**
+     * Synthesize the dirty region.
+     * - Finds dirty frame range from project
+     * - Expands to nearest silence boundaries
+     * - Synthesizes entire region (no padding, no crossfade)
+     * - Direct replacement of samples
+     */
+    void synthesizeRegion(ProgressCallback onProgress, CompleteCallback onComplete);
 
     // Cancel ongoing synthesis
     void cancel();
@@ -31,14 +39,12 @@ public:
     // Check if synthesis is in progress
     bool isSynthesizing() const { return isBusy.load(); }
 
-    // Get the current job ID (for tracking)
-    uint64_t getCurrentJobId() const { return jobId.load(); }
-
 private:
-    // Apply crossfade at boundaries
-    void applyCrossfade(juce::AudioBuffer<float>& waveform,
-                       const std::vector<float>& synthesized,
-                       int startSample, int crossfadeSamples);
+    /**
+     * Expand dirty range to nearest silence boundaries.
+     * Searches backwards and forwards to find silence gaps (>= 5 frames).
+     */
+    std::pair<int, int> expandToSilenceBoundaries(int dirtyStart, int dirtyEnd);
 
     Vocoder* vocoder = nullptr;
     Project* project = nullptr;
@@ -46,9 +52,6 @@ private:
     std::shared_ptr<std::atomic<bool>> cancelFlag;
     std::atomic<uint64_t> jobId{0};
     std::atomic<bool> isBusy{false};
-
-    // Synthesis parameters
-    static constexpr int paddingFrames = 30;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(IncrementalSynthesizer)
 };
