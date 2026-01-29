@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
+#include "../Utils/DPIScaleManager.h"
 #include <cmath>
 
 /**
@@ -115,6 +116,26 @@ public:
     static bool isCustomFontLoaded()
     {
         return getInstance().fontLoaded;
+    }
+
+    /**
+     * Get a DPI-scaled font.
+     * This automatically applies the current DPI scale factor.
+     */
+    static juce::Font getScaledFont(float baseHeight = 14.0f)
+    {
+        float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
+        return getFont(baseHeight * scaleFactor);
+    }
+
+    /**
+     * Get a DPI-scaled bold font.
+     * This automatically applies the current DPI scale factor.
+     */
+    static juce::Font getScaledBoldFont(float baseHeight = 14.0f)
+    {
+        float scaleFactor = juce::Desktop::getInstance().getGlobalScaleFactor();
+        return getBoldFont(baseHeight * scaleFactor);
     }
 
 private:

@@ -6,6 +6,7 @@
 #include "UI/StyledComponents.h"
 #include "Utils/AppLogger.h"
 #include "Utils/Constants.h"
+#include "Utils/DPIScaleManager.h"
 #include "Utils/Localization.h"
 #include "Utils/PlatformUtils.h"
 #include "Utils/WindowSizing.h"
@@ -103,6 +104,8 @@ public:
     juce::ignoreUnused(commandLine);
     AppLogger::init();
     LOG("========== APP STARTING ==========");
+    LOG("Initializing DPI scale manager...");
+    DPIScaleManager::getInstance().initialize();
     LOG("Initializing fonts...");
     AppFont::initialize();
     LOG("Loading localization...");

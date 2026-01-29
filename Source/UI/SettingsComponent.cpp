@@ -1,5 +1,6 @@
 #include "SettingsComponent.h"
 #include "../Utils/Constants.h"
+#include "../Utils/DPIScaleManager.h"
 #include "../Utils/Localization.h"
 
 #ifdef HAVE_ONNXRUNTIME
@@ -107,6 +108,20 @@ SettingsComponent::SettingsComponent(
   languageComboBox.addListener(this);
   languageComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(languageComboBox);
+
+  // UI Scale selection
+  uiScaleLabel.setText(TR("settings.ui_scale"), juce::dontSendNotification);
+  configureRowLabel(uiScaleLabel);
+  addAndMakeVisible(uiScaleLabel);
+
+  uiScaleComboBox.addItem(TR("settings.ui_scale.auto"), 1);
+  uiScaleComboBox.addItem("100%", 2);
+  uiScaleComboBox.addItem("125%", 3);
+  uiScaleComboBox.addItem("150%", 4);
+  uiScaleComboBox.addItem("200%", 5);
+  uiScaleComboBox.addListener(this);
+  uiScaleComboBox.setLookAndFeel(&settingsLookAndFeel);
+  addAndMakeVisible(uiScaleComboBox);
 
   // Device selection
   deviceLabel.setText(TR("settings.device"), juce::dontSendNotification);
@@ -328,6 +343,7 @@ void SettingsComponent::resized() {
     content.removeFromTop(10);
 
     layoutRow(languageLabel, languageComboBox);
+    layoutRow(uiScaleLabel, uiScaleComboBox);
     layoutRow(deviceLabel, deviceComboBox);
 
     if (gpuDeviceLabel.isVisible()) {
@@ -371,6 +387,19 @@ void SettingsComponent::comboBoxChanged(juce::ComboBox *comboBox) {
 
     if (onLanguageChanged)
       onLanguageChanged();
+  } else if (comboBox == &uiScaleComboBox) {
+    int selectedId = uiScaleComboBox.getSelectedId();
+    DPIScaleManager::ScalePreset preset;
+    switch (selectedId) {
+      case 1: preset = DPIScaleManager::ScalePreset::Auto; break;
+      case 2: preset = DPIScaleManager::ScalePreset::Scale100; break;
+      case 3: preset = DPIScaleManager::ScalePreset::Scale125; break;
+      case 4: preset = DPIScaleManager::ScalePreset::Scale150; break;
+      case 5: preset = DPIScaleManager::ScalePreset::Scale200; break;
+      default: preset = DPIScaleManager::ScalePreset::Auto; break;
+    }
+    DPIScaleManager::getInstance().setScalePreset(preset);
+    saveSettings();
   } else if (comboBox == &deviceComboBox) {
     if (canChangeDevice && !canChangeDevice()) {
       for (int i = 0; i < deviceComboBox.getNumItems(); ++i) {
@@ -845,6 +874,18 @@ void SettingsComponent::loadSettings() {
       }
     }
   }
+
+  // Load UI scale setting
+  auto scalePreset = DPIScaleManager::getInstance().getScalePreset();
+  int scaleId = 1; // Default to Auto
+  switch (scalePreset) {
+    case DPIScaleManager::ScalePreset::Auto: scaleId = 1; break;
+    case DPIScaleManager::ScalePreset::Scale100: scaleId = 2; break;
+    case DPIScaleManager::ScalePreset::Scale125: scaleId = 3; break;
+    case DPIScaleManager::ScalePreset::Scale150: scaleId = 4; break;
+    case DPIScaleManager::ScalePreset::Scale200: scaleId = 5; break;
+  }
+  uiScaleComboBox.setSelectedId(scaleId, juce::dontSendNotification);
 
   // Update the ComboBox selection to match loaded settings
   for (int i = 0; i < deviceComboBox.getNumItems(); ++i) {

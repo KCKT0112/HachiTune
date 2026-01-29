@@ -40,6 +40,8 @@
   "settings.title": "设置",
   "settings.general": "常规",
   "settings.language": "语言:",
+  "settings.ui_scale": "界面缩放:",
+  "settings.ui_scale.auto": "自动",
   "settings.device": "设备:",
   "settings.gpu_device": "GPU 设备:",
   "settings.threads": "线程数:",

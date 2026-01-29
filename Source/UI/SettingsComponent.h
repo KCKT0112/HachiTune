@@ -98,6 +98,9 @@ private:
   juce::Label languageLabel;
   StyledComboBox languageComboBox;
 
+  juce::Label uiScaleLabel;
+  StyledComboBox uiScaleComboBox;
+
   juce::Label deviceLabel;
   StyledComboBox deviceComboBox;
   juce::Label gpuDeviceLabel;

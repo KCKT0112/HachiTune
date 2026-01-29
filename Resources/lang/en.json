@@ -44,6 +44,8 @@
   "settings.title": "Settings",
   "settings.general": "General",
   "settings.language": "Language:",
+  "settings.ui_scale": "UI Scale:",
+  "settings.ui_scale.auto": "Auto",
   "settings.device": "Device:",
   "settings.gpu_device": "GPU Device:",
   "settings.threads": "Threads:",

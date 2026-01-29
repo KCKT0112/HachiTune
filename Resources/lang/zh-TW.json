@@ -40,6 +40,8 @@
   "settings.title": "設定",
   "settings.general": "常規",
   "settings.language": "語言:",
+  "settings.ui_scale": "介面縮放:",
+  "settings.ui_scale.auto": "自動",
   "settings.device": "裝置:",
   "settings.gpu_device": "GPU 裝置:",
   "settings.threads": "執行緒數:",

@@ -40,6 +40,8 @@
   "settings.title": "設定",
   "settings.general": "一般",
   "settings.language": "言語:",
+  "settings.ui_scale": "UI スケール:",
+  "settings.ui_scale.auto": "自動",
   "settings.device": "デバイス:",
   "settings.gpu_device": "GPUデバイス:",
   "settings.threads": "スレッド数:",
