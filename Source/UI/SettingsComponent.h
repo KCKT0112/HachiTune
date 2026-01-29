@@ -3,6 +3,7 @@
 #include "../Audio/PitchDetectorType.h"
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
+#include "../Utils/KiwiLayoutManager.h"
 #include "Main/SettingsManager.h"
 #include "StyledComponents.h"
 #include <functional>
@@ -87,6 +88,12 @@ private:
   void updateTabVisibility();
   bool shouldShowGpuDeviceList() const;
 
+  // Layout setup
+  void setupConstraints();
+  void updateLayoutConstraints();
+  void layoutGeneralTab();
+  void layoutAudioTab();
+
   bool pluginMode = false;
   juce::AudioDeviceManager *deviceManager = nullptr;
   SettingsManager *settingsManager = nullptr;
@@ -142,6 +149,27 @@ private:
   juce::Rectangle<int> sidebarBounds;
   juce::Array<int> separatorYs;
   float cornerRadius = 10.0f;
+
+  // Kiwi constraint layout
+  KiwiLayoutManager layout;
+  KiwiLayoutManager::ComponentVars containerVars;
+  KiwiLayoutManager::ComponentVars sidebarVars;
+  KiwiLayoutManager::ComponentVars generalTabButtonVars;
+  KiwiLayoutManager::ComponentVars audioTabButtonVars;
+  KiwiLayoutManager::ComponentVars contentVars;
+  KiwiLayoutManager::ComponentVars titleVars;
+  KiwiLayoutManager::ComponentVars cardVars;
+
+  // Dynamic constraints
+  kiwi::Constraint containerWidthConstraint;
+  kiwi::Constraint containerHeightConstraint;
+
+  // Row layout variables (created dynamically for each row)
+  struct RowVars {
+    KiwiLayoutManager::ComponentVars label;
+    KiwiLayoutManager::ComponentVars control;
+  };
+  std::vector<RowVars> currentRowVars;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SettingsComponent)
 };

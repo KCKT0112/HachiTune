@@ -3,6 +3,7 @@
 #include "../JuceHeader.h"
 #include "../Models/Project.h"
 #include "../Utils/Constants.h"
+#include "../Utils/KiwiLayoutManager.h"
 
 class WaveformComponent : public juce::Component,
                           public juce::ScrollBar::Listener
@@ -37,7 +38,11 @@ private:
     void drawCursor(juce::Graphics& g);
     void updateScrollBar();
     void rebuildWaveformCache();
-    
+
+    // Layout setup
+    void setupConstraints();
+    void updateLayoutConstraints();
+
     float timeToX(double time) const;
     double xToTime(float x) const;
     
@@ -50,8 +55,17 @@ private:
     // Waveform cache
     juce::AudioBuffer<float> waveformCache;
     int cacheResolution = 512;  // Samples per pixel at base zoom
-    
+
     juce::ScrollBar horizontalScrollBar { false };
-    
+
+    // Kiwi constraint layout
+    KiwiLayoutManager layout;
+    KiwiLayoutManager::ComponentVars containerVars;
+    KiwiLayoutManager::ComponentVars scrollBarVars;
+
+    // Dynamic constraints
+    kiwi::Constraint containerWidthConstraint;
+    kiwi::Constraint containerHeightConstraint;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WaveformComponent)
 };

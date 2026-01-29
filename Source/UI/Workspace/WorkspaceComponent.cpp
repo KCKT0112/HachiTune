@@ -9,6 +9,80 @@ WorkspaceComponent::WorkspaceComponent()
 
     // Initially hide panel container (no panels visible)
     panelContainer.setVisible(false);
+
+    // Setup Kiwi constraint layout
+    setupConstraints();
+}
+
+void WorkspaceComponent::setupConstraints()
+{
+    // Create variables for container (this component)
+    containerVars = layout.createComponentVars("container");
+
+    // Create variables for main card and panel container
+    mainCardVars = layout.createComponentVars("mainCard");
+    panelContainerVars = layout.createComponentVars("panelContainer");
+
+    // Container constraints (will be updated in resized())
+    containerWidthConstraint = containerVars.width == 800.0;
+    containerHeightConstraint = containerVars.height == 600.0;
+    layout.addConstraint(containerVars.left == 0.0);
+    layout.addConstraint(containerVars.top == 0.0);
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+    // Main card constraints (fills available space with margins)
+    // Left margin: 8px
+    layout.addConstraint(mainCardVars.left == containerVars.left + 8.0);
+    // Top margin: 2px (smaller to be closer to toolbar)
+    layout.addConstraint(mainCardVars.top == containerVars.top + 2.0);
+    // Bottom margin: 8px
+    layout.addConstraint(mainCardVars.bottom == containerVars.bottom - 8.0);
+
+    // Panel container constraints (280px width on right side when visible)
+    // Right margin: 8px
+    layout.addConstraint(panelContainerVars.right == containerVars.right - 8.0);
+    layout.addConstraint(panelContainerVars.top == containerVars.top + 2.0);
+    layout.addConstraint(panelContainerVars.bottom == containerVars.bottom - 8.0);
+    layout.addConstraint(panelContainerVars.width == 280.0);
+
+    // Main card right edge depends on panel visibility
+    // When panels visible: 8px gap from panel container
+    // When panels hidden: 8px from right edge
+    // We'll update this dynamically in updateLayoutConstraints()
+    panelVisibilityConstraint = mainCardVars.right == containerVars.right - 8.0;
+    layout.addConstraint(panelVisibilityConstraint);
+}
+
+void WorkspaceComponent::updateLayoutConstraints()
+{
+    // Remove old size constraints
+    layout.removeConstraint(containerWidthConstraint);
+    layout.removeConstraint(containerHeightConstraint);
+
+    // Create new size constraints with current dimensions
+    containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+    containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+    // Add new constraints
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+    // Update main card right edge based on panel visibility
+    layout.removeConstraint(panelVisibilityConstraint);
+
+    bool hasPanels = panelContainer.isVisible();
+    if (hasPanels)
+    {
+        // 8px gap between main card and panel container
+        panelVisibilityConstraint = mainCardVars.right == panelContainerVars.left - 8.0;
+    }
+    else
+    {
+        // 8px margin from right edge
+        panelVisibilityConstraint = mainCardVars.right == containerVars.right - 8.0;
+    }
+    layout.addConstraint(panelVisibilityConstraint);
 }
 
 void WorkspaceComponent::paint(juce::Graphics& g)
@@ -18,39 +92,16 @@ void WorkspaceComponent::paint(juce::Graphics& g)
 
 void WorkspaceComponent::resized()
 {
-    auto bounds = getLocalBounds();
-    const int margin = 8;
-    const int topMargin = 2; // Smaller top margin to be closer to toolbar
+    // Update container size constraints
+    updateLayoutConstraints();
 
-    // Apply top margin first so sidebar aligns with content
-    bounds.removeFromTop(topMargin);
-    bounds.removeFromRight(margin); // Outer right padding
+    // Apply layout to components
+    layout.applyComponentVars(&mainCard, mainCardVars);
 
-    // Panel container (if any panels are visible)
-    bool hasPanels = false;
-    for (const auto& id : panelContainer.getPanelOrder())
+    if (panelContainer.isVisible())
     {
-        if (panelContainer.isPanelVisible(id))
-        {
-            hasPanels = true;
-            break;
-        }
+        layout.applyComponentVars(&panelContainer, panelContainerVars);
     }
-
-    // Apply left/bottom margins
-    bounds.removeFromLeft(margin);
-    bounds.removeFromBottom(margin);
-
-    if (hasPanels)
-    {
-        // Panel on right, consistent margin between sidebar and panel
-        auto panelBounds = bounds.removeFromRight(panelContainerWidth);
-        bounds.removeFromRight(margin); // Gap between piano roll and panel
-        panelContainer.setBounds(panelBounds);
-    }
-
-    // Main content card
-    mainCard.setBounds(bounds);
 }
 
 void WorkspaceComponent::setMainContent(juce::Component* content)

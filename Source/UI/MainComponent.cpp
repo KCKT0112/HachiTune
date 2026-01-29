@@ -250,6 +250,10 @@ MainComponent::MainComponent(bool enableAudioDevice)
   if (enableAudioDeviceFlag)
     settingsManager->loadConfig();
 
+  LOG("MainComponent: setting up constraint layout...");
+  // Setup Kiwi constraint layout
+  setupConstraints();
+
   LOG("MainComponent: starting timer...");
   // Start timer for UI updates
   startTimerHz(30);
@@ -414,21 +418,18 @@ void MainComponent::paint(juce::Graphics &g) {
 }
 
 void MainComponent::resized() {
-  auto bounds = getLocalBounds();
+  // Update container size constraints
+  updateLayoutConstraints();
 
+  // Apply layout to all components
 #if !JUCE_MAC
-  // Menu bar at top for non-mac platforms
-  menuBar.setBounds(bounds.removeFromTop(24));
+  layout.applyComponentVars(&menuBar, menuBarVars);
 #endif
-
-  // Toolbar
-  toolbar.setBounds(bounds.removeFromTop(52));
-
-  // Workspace takes remaining space (includes piano roll, panels, and sidebar)
-  workspace.setBounds(bounds);
+  layout.applyComponentVars(&toolbar, toolbarVars);
+  layout.applyComponentVars(&workspace, workspaceVars);
 
   if (settingsOverlay)
-    settingsOverlay->setBounds(getLocalBounds());
+    layout.applyComponentVars(settingsOverlay.get(), settingsOverlayVars);
 
   if (enableAudioDeviceFlag && settingsManager)
     settingsManager->setWindowSize(getWidth(), getHeight());
@@ -2483,4 +2484,71 @@ void MainComponent::renderProcessedAudio() {
             });
         finishRendering();
       });
+}
+
+// Setup Kiwi constraint layout
+void MainComponent::setupConstraints() {
+  // Create variables for container (this component)
+  containerVars = layout.createComponentVars("container");
+
+  // Create variables for child components
+  menuBarVars = layout.createComponentVars("menuBar");
+  toolbarVars = layout.createComponentVars("toolbar");
+  workspaceVars = layout.createComponentVars("workspace");
+  settingsOverlayVars = layout.createComponentVars("settingsOverlay");
+
+  // Container constraints (will be updated in resized())
+  containerWidthConstraint = containerVars.width == 800.0;
+  containerHeightConstraint = containerVars.height == 600.0;
+  layout.addConstraint(containerVars.left == 0.0);
+  layout.addConstraint(containerVars.top == 0.0);
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
+
+#if !JUCE_MAC
+  // Menu bar constraints (non-macOS only)
+  layout.addConstraint(menuBarVars.left == containerVars.left);
+  layout.addConstraint(menuBarVars.top == containerVars.top);
+  layout.addConstraint(menuBarVars.width == containerVars.width);
+  layout.addConstraint(menuBarVars.height == 24.0);  // Fixed height
+
+  // Toolbar below menu bar
+  layout.addConstraint(toolbarVars.left == containerVars.left);
+  layout.addConstraint(toolbarVars.top == menuBarVars.bottom);
+  layout.addConstraint(toolbarVars.width == containerVars.width);
+  layout.addConstraint(toolbarVars.height == 52.0);  // Fixed height
+#else
+  // Toolbar at top (macOS uses native menu)
+  layout.addConstraint(toolbarVars.left == containerVars.left);
+  layout.addConstraint(toolbarVars.top == containerVars.top);
+  layout.addConstraint(toolbarVars.width == containerVars.width);
+  layout.addConstraint(toolbarVars.height == 52.0);  // Fixed height
+#endif
+
+  // Workspace fills remaining space
+  layout.addConstraint(workspaceVars.left == containerVars.left);
+  layout.addConstraint(workspaceVars.top == toolbarVars.bottom);
+  layout.addConstraint(workspaceVars.right == containerVars.right);
+  layout.addConstraint(workspaceVars.bottom == containerVars.bottom);
+
+  // Settings overlay covers entire component
+  layout.addConstraint(settingsOverlayVars.left == containerVars.left);
+  layout.addConstraint(settingsOverlayVars.top == containerVars.top);
+  layout.addConstraint(settingsOverlayVars.right == containerVars.right);
+  layout.addConstraint(settingsOverlayVars.bottom == containerVars.bottom);
+}
+
+// Update layout constraints when component is resized
+void MainComponent::updateLayoutConstraints() {
+  // Remove old size constraints
+  layout.removeConstraint(containerWidthConstraint);
+  layout.removeConstraint(containerHeightConstraint);
+
+  // Create new size constraints with current dimensions
+  containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+  containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+  // Add new constraints
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
 }

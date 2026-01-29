@@ -5,6 +5,9 @@ WaveformComponent::WaveformComponent()
 {
     addAndMakeVisible(horizontalScrollBar);
     horizontalScrollBar.addListener(this);
+
+    // Setup Kiwi constraint layout
+    setupConstraints();
 }
 
 WaveformComponent::~WaveformComponent()
@@ -25,9 +28,52 @@ void WaveformComponent::paint(juce::Graphics& g)
     g.drawRect(getLocalBounds());
 }
 
+void WaveformComponent::setupConstraints()
+{
+    // Create variables for container (this component)
+    containerVars = layout.createComponentVars("container");
+
+    // Create variables for scrollbar
+    scrollBarVars = layout.createComponentVars("scrollBar");
+
+    // Container constraints (will be updated in resized())
+    containerWidthConstraint = containerVars.width == 800.0;
+    containerHeightConstraint = containerVars.height == 600.0;
+    layout.addConstraint(containerVars.left == 0.0);
+    layout.addConstraint(containerVars.top == 0.0);
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+    // Scrollbar constraints (14px height, at bottom)
+    layout.addConstraint(scrollBarVars.left == containerVars.left);
+    layout.addConstraint(scrollBarVars.right == containerVars.right);
+    layout.addConstraint(scrollBarVars.bottom == containerVars.bottom);
+    layout.addConstraint(scrollBarVars.height == 14.0);
+}
+
+void WaveformComponent::updateLayoutConstraints()
+{
+    // Remove old size constraints
+    layout.removeConstraint(containerWidthConstraint);
+    layout.removeConstraint(containerHeightConstraint);
+
+    // Create new size constraints with current dimensions
+    containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+    containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+    // Add new constraints
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+}
+
 void WaveformComponent::resized()
 {
-    horizontalScrollBar.setBounds(0, getHeight() - 14, getWidth(), 14);
+    // Update container size constraints
+    updateLayoutConstraints();
+
+    // Apply layout to scrollbar
+    layout.applyComponentVars(&horizontalScrollBar, scrollBarVars);
+
     updateScrollBar();
 }
 

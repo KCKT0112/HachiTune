@@ -87,6 +87,9 @@ PianoRollComponent::PianoRollComponent() {
   // Enable keyboard focus for shortcuts
   setWantsKeyboardFocus(true);
   addKeyListener(this);
+
+  // Setup Kiwi constraint layout
+  setupConstraints();
 }
 
 PianoRollComponent::~PianoRollComponent() {
@@ -170,18 +173,66 @@ void PianoRollComponent::paint(juce::Graphics &g) {
 }
 
 void PianoRollComponent::resized() {
-  auto bounds = getLocalBounds();
-  constexpr int scrollBarSize = 8;
+  // Update container size constraints
+  updateLayoutConstraints();
 
-  horizontalScrollBar.setBounds(
-      pianoKeysWidth, bounds.getHeight() - scrollBarSize,
-      bounds.getWidth() - pianoKeysWidth - scrollBarSize, scrollBarSize);
-
-  verticalScrollBar.setBounds(
-      bounds.getWidth() - scrollBarSize, headerHeight, scrollBarSize,
-      bounds.getHeight() - scrollBarSize - headerHeight);
+  // Apply layout to scrollbars
+  layout.applyComponentVars(&horizontalScrollBar, horizontalScrollBarVars);
+  layout.applyComponentVars(&verticalScrollBar, verticalScrollBarVars);
 
   updateScrollBars();
+}
+
+void PianoRollComponent::setupConstraints() {
+  // Create variables for container (this component)
+  containerVars = layout.createComponentVars("container");
+
+  // Create variables for scrollbars
+  horizontalScrollBarVars = layout.createComponentVars("horizontalScrollBar");
+  verticalScrollBarVars = layout.createComponentVars("verticalScrollBar");
+
+  // Container constraints (will be updated in resized())
+  containerWidthConstraint = containerVars.width == 800.0;
+  containerHeightConstraint = containerVars.height == 600.0;
+  layout.addConstraint(containerVars.left == 0.0);
+  layout.addConstraint(containerVars.top == 0.0);
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
+
+  constexpr double scrollBarSize = 8.0;
+  constexpr double pianoWidth = static_cast<double>(pianoKeysWidth);
+  constexpr double headerH = static_cast<double>(headerHeight);
+
+  // Horizontal scrollbar (bottom, after piano keys width)
+  layout.addConstraint(horizontalScrollBarVars.left ==
+                       containerVars.left + pianoWidth);
+  layout.addConstraint(horizontalScrollBarVars.bottom == containerVars.bottom);
+  layout.addConstraint(horizontalScrollBarVars.right ==
+                       containerVars.right - scrollBarSize);
+  layout.addConstraint(horizontalScrollBarVars.height == scrollBarSize);
+
+  // Vertical scrollbar (right, after header height)
+  layout.addConstraint(verticalScrollBarVars.right == containerVars.right);
+  layout.addConstraint(verticalScrollBarVars.top == containerVars.top + headerH);
+  layout.addConstraint(verticalScrollBarVars.bottom ==
+                       containerVars.bottom - scrollBarSize);
+  layout.addConstraint(verticalScrollBarVars.width == scrollBarSize);
+}
+
+void PianoRollComponent::updateLayoutConstraints() {
+  // Remove old size constraints
+  layout.removeConstraint(containerWidthConstraint);
+  layout.removeConstraint(containerHeightConstraint);
+
+  // Create new size constraints with current dimensions
+  containerWidthConstraint =
+      containerVars.width == static_cast<double>(getWidth());
+  containerHeightConstraint =
+      containerVars.height == static_cast<double>(getHeight());
+
+  // Add new constraints
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
 }
 
 void PianoRollComponent::drawBackgroundWaveform(

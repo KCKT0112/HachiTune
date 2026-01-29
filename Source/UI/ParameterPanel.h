@@ -4,6 +4,7 @@
 #include "../Models/Note.h"
 #include "../Models/Project.h"
 #include "../Utils/Constants.h"
+#include "../Utils/KiwiLayoutManager.h"
 
 class DarkLookAndFeel;  // Forward declaration
 
@@ -33,10 +34,14 @@ public:
     std::function<void()> onParameterEditFinished;  // Called when slider drag ends
     std::function<void()> onGlobalPitchChanged;
     std::function<void(float)> onVolumeChanged;  // Called with volume in dB
-    
+
 private:
     void setupSlider(juce::Slider& slider, juce::Label& label,
                     const juce::String& name, double min, double max, double def);
+
+    // Layout setup
+    void setupConstraints();
+    void updateLayoutConstraints();
 
     Project* project = nullptr;
     Note* selectedNote = nullptr;
@@ -63,6 +68,29 @@ private:
     juce::Label globalSectionLabel { {}, "Global Settings" };
     juce::Slider globalPitchSlider;
     juce::Label globalPitchLabel { {}, "Global Pitch:" };
-    
+
+    // Kiwi constraint layout
+    KiwiLayoutManager layout;
+    KiwiLayoutManager::ComponentVars containerVars;
+
+    // Section variables
+    KiwiLayoutManager::ComponentVars noteInfoVars;
+    KiwiLayoutManager::ComponentVars pitchSectionVars;
+    KiwiLayoutManager::ComponentVars pitchLabelVars;
+    KiwiLayoutManager::ComponentVars pitchSliderVars;
+    KiwiLayoutManager::ComponentVars volumeSectionVars;
+    KiwiLayoutManager::ComponentVars volumeKnobVars;
+    KiwiLayoutManager::ComponentVars volumeValueVars;
+    KiwiLayoutManager::ComponentVars formantSectionVars;
+    KiwiLayoutManager::ComponentVars formantLabelVars;
+    KiwiLayoutManager::ComponentVars formantSliderVars;
+    KiwiLayoutManager::ComponentVars globalSectionVars;
+    KiwiLayoutManager::ComponentVars globalLabelVars;
+    KiwiLayoutManager::ComponentVars globalSliderVars;
+
+    // Dynamic constraints
+    kiwi::Constraint containerWidthConstraint;
+    kiwi::Constraint containerHeightConstraint;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ParameterPanel)
 };

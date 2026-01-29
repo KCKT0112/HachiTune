@@ -6,6 +6,7 @@
 #include "../Utils/DrawCurve.h"
 #include "../Utils/BasePitchPreview.h"
 #include "../Utils/UndoManager.h"
+#include "../Utils/KiwiLayoutManager.h"
 #include "PianoRoll/BoxSelector.h"
 #include "PianoRoll/CoordinateMapper.h"
 #include "PianoRoll/NoteSplitter.h"
@@ -143,6 +144,11 @@ private:
   void prepareDragBasePreview();
   void applyDragBasePreview(float pitchOffsetSemitones);
   void restoreDragBasePreview();
+
+  // Layout setup
+  void setupConstraints();
+  void updateLayoutConstraints();
+
   struct StretchBoundary {
     Note *left = nullptr;
     Note *right = nullptr;
@@ -310,6 +316,16 @@ private:
   static constexpr juce::int64 minDragRepaintInterval = 16; // ~60fps max
   juce::int64 lastStretchPreviewTime = 0;
   static constexpr juce::int64 minStretchPreviewInterval = 120;
+
+  // Kiwi constraint layout
+  KiwiLayoutManager layout;
+  KiwiLayoutManager::ComponentVars containerVars;
+  KiwiLayoutManager::ComponentVars horizontalScrollBarVars;
+  KiwiLayoutManager::ComponentVars verticalScrollBarVars;
+
+  // Dynamic constraints
+  kiwi::Constraint containerWidthConstraint;
+  kiwi::Constraint containerHeightConstraint;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PianoRollComponent)
 };

@@ -2,6 +2,7 @@
 
 #include "../JuceHeader.h"
 #include "../Utils/Constants.h"
+#include "../Utils/KiwiLayoutManager.h"
 
 // Forward declaration - EditMode is defined in PianoRollComponent.h
 enum class EditMode;
@@ -90,6 +91,10 @@ private:
     void updateTimeDisplay();
     juce::String formatTime(double seconds);
 
+    // Layout setup
+    void setupConstraints();
+    void updateLayoutConstraints();
+
     juce::DrawableButton playButton { "Play", juce::DrawableButton::ImageFitted };
     juce::DrawableButton stopButton { "Stop", juce::DrawableButton::ImageFitted };
     juce::DrawableButton goToStartButton { "Start", juce::DrawableButton::ImageFitted };
@@ -113,9 +118,9 @@ private:
     ToolButton loopButton { "Loop" };
     ToolButton parametersButton { "Parameters" };
     juce::Rectangle<int> toolContainerBounds;  // For drawing container background
-    
+
     juce::Label timeLabel;
-    
+
     juce::Slider zoomSlider;
     juce::Label zoomLabel { {}, "Zoom:" };
 
@@ -124,19 +129,32 @@ private:
     juce::ProgressBar progressBar { progressValue };
     juce::Label progressLabel;
     bool showingProgress = false;
-    
+
     // Status label (for mode indication)
     juce::Label statusLabel;
     bool showingStatus = false;
 
     bool parametersVisible = false;
-    
+
     double currentTime = 0.0;
     double totalTime = 0.0;
     bool isPlaying = false;
     bool followPlayback = true;
     bool loopEnabled = false;
     int currentEditModeInt = 0;  // 0 = Select, 1 = Stretch, 2 = Draw, 3 = Split
+
+    // Kiwi constraint layout
+    KiwiLayoutManager layout;
+    KiwiLayoutManager::ComponentVars containerVars;
+    KiwiLayoutManager::ComponentVars playbackGroupVars;
+    KiwiLayoutManager::ComponentVars toolContainerGroupVars;
+    KiwiLayoutManager::ComponentVars timeLabelVars;
+    KiwiLayoutManager::ComponentVars rightAreaVars;
+    KiwiLayoutManager::ComponentVars parametersButtonVars;
+
+    // Dynamic constraints
+    kiwi::Constraint containerWidthConstraint;
+    kiwi::Constraint containerHeightConstraint;
 
 #if JUCE_MAC
     juce::ComponentDragger dragger;

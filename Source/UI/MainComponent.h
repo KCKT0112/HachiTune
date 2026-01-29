@@ -11,6 +11,7 @@
 #include "../Audio/Vocoder.h"
 #include "../JuceHeader.h"
 #include "../Models/Project.h"
+#include "../Utils/KiwiLayoutManager.h"
 #include "../Utils/UndoManager.h"
 #include "CustomMenuBarLookAndFeel.h"
 #include "CustomTitleBar.h"
@@ -99,6 +100,10 @@ private:
   void onZoomChanged(float pixelsPerSecond);
   void reinterpolateUV(int startFrame,
                        int endFrame); // Re-infer UV regions using FCPE
+
+  // Layout setup
+  void setupConstraints();
+  void updateLayoutConstraints();
 
   void reloadInferenceModels(bool async = false);
   GPUProvider getProviderFromDevice(const juce::String &device) const;
@@ -195,6 +200,18 @@ private:
 #if JUCE_MAC
   juce::ComponentDragger dragger;
 #endif
+
+  // Kiwi constraint layout
+  KiwiLayoutManager layout;
+  KiwiLayoutManager::ComponentVars containerVars;
+  KiwiLayoutManager::ComponentVars menuBarVars;
+  KiwiLayoutManager::ComponentVars toolbarVars;
+  KiwiLayoutManager::ComponentVars workspaceVars;
+  KiwiLayoutManager::ComponentVars settingsOverlayVars;
+
+  // Dynamic constraints that change on resize
+  kiwi::Constraint containerWidthConstraint;
+  kiwi::Constraint containerHeightConstraint;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

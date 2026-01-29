@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include "../Utils/KiwiLayoutManager.h"
 
 /**
  * Custom title bar component for frameless window.
@@ -37,6 +38,10 @@ private:
     void minimizeWindow();
     void toggleMaximize();
 
+    // Layout setup
+    void setupConstraints();
+    void updateLayoutConstraints();
+
     juce::String title;
     juce::ComponentDragger dragger;
 
@@ -48,6 +53,20 @@ private:
 
     bool isMaximized = false;
     juce::Rectangle<int> normalBounds;
+
+    // Kiwi constraint layout
+    KiwiLayoutManager layout;
+    KiwiLayoutManager::ComponentVars containerVars;
+
+#if !JUCE_MAC
+    KiwiLayoutManager::ComponentVars closeButtonVars;
+    KiwiLayoutManager::ComponentVars maximizeButtonVars;
+    KiwiLayoutManager::ComponentVars minimizeButtonVars;
+#endif
+
+    // Dynamic constraints
+    kiwi::Constraint containerWidthConstraint;
+    kiwi::Constraint containerHeightConstraint;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CustomTitleBar)
 };

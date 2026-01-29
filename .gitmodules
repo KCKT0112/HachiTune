@@ -4,3 +4,6 @@
 [submodule "third_party/ARA_SDK"]
 	path = third_party/ARA_SDK
 	url = https://github.com/Celemony/ARA_SDK
+[submodule "third_party/kiwi"]
+	path = third_party/kiwi
+	url = https://github.com/nucleic/kiwi.git

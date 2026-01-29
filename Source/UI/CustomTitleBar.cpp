@@ -132,6 +132,9 @@ CustomTitleBar::CustomTitleBar()
     addAndMakeVisible(*minimizeButton);
     addAndMakeVisible(*maximizeButton);
 #endif
+
+    // Setup Kiwi constraint layout
+    setupConstraints();
 }
 
 CustomTitleBar::~CustomTitleBar() = default;
@@ -156,16 +159,73 @@ void CustomTitleBar::paint(juce::Graphics& g)
     g.drawHorizontalLine(getHeight() - 1, 0, static_cast<float>(getWidth()));
 }
 
+void CustomTitleBar::setupConstraints()
+{
+    // Create variables for container (this component)
+    containerVars = layout.createComponentVars("container");
+
+    // Container constraints (will be updated in resized())
+    containerWidthConstraint = containerVars.width == 800.0;
+    containerHeightConstraint = containerVars.height == static_cast<double>(titleBarHeight);
+    layout.addConstraint(containerVars.left == 0.0);
+    layout.addConstraint(containerVars.top == 0.0);
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+#if !JUCE_MAC
+    // Create variables for window buttons (Windows/Linux only)
+    closeButtonVars = layout.createComponentVars("closeButton");
+    maximizeButtonVars = layout.createComponentVars("maximizeButton");
+    minimizeButtonVars = layout.createComponentVars("minimizeButton");
+
+    const double buttonWidth = static_cast<double>(TitleBarColors::buttonWidth);
+    const double buttonHeight = static_cast<double>(TitleBarColors::buttonHeight);
+
+    // Close button (rightmost)
+    layout.addConstraint(closeButtonVars.right == containerVars.right);
+    layout.addConstraint(closeButtonVars.top == containerVars.top);
+    layout.addConstraint(closeButtonVars.width == buttonWidth);
+    layout.addConstraint(closeButtonVars.height == buttonHeight);
+
+    // Maximize button (middle)
+    layout.addConstraint(maximizeButtonVars.right == closeButtonVars.left);
+    layout.addConstraint(maximizeButtonVars.top == containerVars.top);
+    layout.addConstraint(maximizeButtonVars.width == buttonWidth);
+    layout.addConstraint(maximizeButtonVars.height == buttonHeight);
+
+    // Minimize button (leftmost of the three)
+    layout.addConstraint(minimizeButtonVars.right == maximizeButtonVars.left);
+    layout.addConstraint(minimizeButtonVars.top == containerVars.top);
+    layout.addConstraint(minimizeButtonVars.width == buttonWidth);
+    layout.addConstraint(minimizeButtonVars.height == buttonHeight);
+#endif
+}
+
+void CustomTitleBar::updateLayoutConstraints()
+{
+    // Remove old size constraints
+    layout.removeConstraint(containerWidthConstraint);
+    layout.removeConstraint(containerHeightConstraint);
+
+    // Create new size constraints with current dimensions
+    containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+    containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+    // Add new constraints
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+}
+
 void CustomTitleBar::resized()
 {
+    // Update container size constraints
+    updateLayoutConstraints();
+
 #if !JUCE_MAC
-    int x = getWidth();
-    x -= TitleBarColors::buttonWidth;
-    closeButton->setBounds(x, 0, TitleBarColors::buttonWidth, TitleBarColors::buttonHeight);
-    x -= TitleBarColors::buttonWidth;
-    maximizeButton->setBounds(x, 0, TitleBarColors::buttonWidth, TitleBarColors::buttonHeight);
-    x -= TitleBarColors::buttonWidth;
-    minimizeButton->setBounds(x, 0, TitleBarColors::buttonWidth, TitleBarColors::buttonHeight);
+    // Apply layout to window buttons
+    layout.applyComponentVars(closeButton.get(), closeButtonVars);
+    layout.applyComponentVars(maximizeButton.get(), maximizeButtonVars);
+    layout.applyComponentVars(minimizeButton.get(), minimizeButtonVars);
 #endif
 }
 

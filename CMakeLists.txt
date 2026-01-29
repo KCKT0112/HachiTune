@@ -133,6 +133,9 @@ endif()
 # Add JUCE as a subdirectory (git submodule in third_party/)
 add_subdirectory(third_party/JUCE)
 
+# Add Kiwi constraint solver library
+add_subdirectory(third_party/kiwi)
+
 # Create GUI application
 juce_add_gui_app(HachiTune
     PRODUCT_NAME "HachiTune"
@@ -220,6 +223,7 @@ juce_add_binary_data(BinaryData SOURCES ${SVG_FILES})
 # Link JUCE modules
 target_link_libraries(HachiTune PRIVATE
     BinaryData
+    kiwi::kiwi
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics
@@ -233,6 +237,7 @@ target_link_libraries(HachiTune PRIVATE
 
 target_link_libraries(HachiTunePlugin PRIVATE
     BinaryData
+    kiwi::kiwi
     juce::juce_gui_basics
     juce::juce_gui_extra
     juce::juce_audio_basics

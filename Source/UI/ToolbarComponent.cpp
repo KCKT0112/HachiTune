@@ -148,6 +148,84 @@ ToolbarComponent::ToolbarComponent()
     statusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     statusLabel.setJustificationType(juce::Justification::centredLeft);
     statusLabel.setFont(juce::Font(11.0f));
+
+    // Setup Kiwi constraint layout
+    setupConstraints();
+}
+
+void ToolbarComponent::setupConstraints()
+{
+    // Create variables for container (this component)
+    containerVars = layout.createComponentVars("container");
+
+    // Create variables for main groups
+    playbackGroupVars = layout.createComponentVars("playbackGroup");
+    toolContainerGroupVars = layout.createComponentVars("toolContainer");
+    timeLabelVars = layout.createComponentVars("timeLabel");
+    rightAreaVars = layout.createComponentVars("rightArea");
+    parametersButtonVars = layout.createComponentVars("parametersButton");
+
+    // Container constraints (will be updated in resized())
+    containerWidthConstraint = containerVars.width == 800.0;
+    containerHeightConstraint = containerVars.height == 52.0;
+    layout.addConstraint(containerVars.left == 0.0);
+    layout.addConstraint(containerVars.top == 0.0);
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+    // Playback group (left side of center section)
+    // Width: 120px for standalone (4 buttons * 28px + gaps), 200px for plugin mode
+    layout.addConstraint(playbackGroupVars.width == 120.0);  // Default to standalone
+    layout.addConstraint(playbackGroupVars.height == containerVars.height - 8.0);
+    layout.addConstraint(playbackGroupVars.top == containerVars.top + 4.0);
+
+    // Tool container (center of center section)
+    // Width: 32px * 6 buttons + 8px padding = 200px for standalone, 136px for plugin (4 buttons)
+    layout.addConstraint(toolContainerGroupVars.width == 200.0);  // Default to standalone (6 buttons)
+    layout.addConstraint(toolContainerGroupVars.height == containerVars.height - 8.0);
+    layout.addConstraint(toolContainerGroupVars.top == containerVars.top + 4.0);
+    layout.addConstraint(toolContainerGroupVars.left == playbackGroupVars.right + 16.0);
+
+    // Time label (right side of center section)
+    layout.addConstraint(timeLabelVars.width == 160.0);
+    layout.addConstraint(timeLabelVars.height == containerVars.height - 8.0);
+    layout.addConstraint(timeLabelVars.top == containerVars.top + 4.0);
+    layout.addConstraint(timeLabelVars.left == toolContainerGroupVars.right + 16.0);
+
+    // Center the entire center section (playback + tools + time)
+    // The center point of the time label should be at the center of the container
+    layout.addConstraint((playbackGroupVars.left + timeLabelVars.right) / 2.0 == containerVars.centerX);
+
+    // Right area (status/progress)
+    layout.addConstraint(rightAreaVars.width == 200.0);
+    layout.addConstraint(rightAreaVars.height == containerVars.height - 8.0);
+    layout.addConstraint(rightAreaVars.top == containerVars.top + 4.0);
+    layout.addConstraint(rightAreaVars.right == parametersButtonVars.left - 10.0);
+
+    // Parameters button (far right)
+    layout.addConstraint(parametersButtonVars.width == 28.0);
+    layout.addConstraint(parametersButtonVars.height == 28.0);
+    layout.addConstraint(parametersButtonVars.right == containerVars.right - 18.0);
+    layout.addConstraint(parametersButtonVars.centerY == containerVars.centerY);
+}
+
+void ToolbarComponent::updateLayoutConstraints()
+{
+    // Remove old size constraints
+    layout.removeConstraint(containerWidthConstraint);
+    layout.removeConstraint(containerHeightConstraint);
+
+    // Create new size constraints with current dimensions
+    containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+    containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+    // Add new constraints
+    layout.addConstraint(containerWidthConstraint);
+    layout.addConstraint(containerHeightConstraint);
+
+    // Update playback group width based on mode
+    // Note: We need to remove and re-add width constraints when mode changes
+    // For now, we'll handle this in setPluginMode()
 }
 
 ToolbarComponent::~ToolbarComponent()
@@ -183,28 +261,78 @@ void ToolbarComponent::paint(juce::Graphics& g)
 
 void ToolbarComponent::resized()
 {
-    auto bounds = getLocalBounds().reduced(8, 4);
+    // Update container size constraints
+    updateLayoutConstraints();
 
-    // Calculate center section width for centering
+    // Apply layout to get group bounds
+    layout.applyComponentVars(&timeLabel, timeLabelVars);
+    layout.applyComponentVars(&parametersButton, parametersButtonVars);
+
+    // Get bounds from solved variables for manual button positioning
+    auto playbackBounds = juce::Rectangle<int>(
+        static_cast<int>(playbackGroupVars.left.value()),
+        static_cast<int>(playbackGroupVars.top.value()),
+        static_cast<int>(playbackGroupVars.width.value()),
+        static_cast<int>(playbackGroupVars.height.value())
+    );
+
+    auto toolContainerBounds = juce::Rectangle<int>(
+        static_cast<int>(toolContainerGroupVars.left.value()),
+        static_cast<int>(toolContainerGroupVars.top.value()),
+        static_cast<int>(toolContainerGroupVars.width.value()),
+        static_cast<int>(toolContainerGroupVars.height.value())
+    );
+
+    auto rightBounds = juce::Rectangle<int>(
+        static_cast<int>(rightAreaVars.left.value()),
+        static_cast<int>(rightAreaVars.top.value()),
+        static_cast<int>(rightAreaVars.width.value()),
+        static_cast<int>(rightAreaVars.height.value())
+    );
+
+    // Position playback controls or plugin mode buttons
+    int currentX = playbackBounds.getX();
+    if (pluginMode)
+    {
+        araModeLabel.setBounds(currentX, playbackBounds.getY(), 90, playbackBounds.getHeight());
+        currentX += 98;
+        reanalyzeButton.setBounds(currentX, playbackBounds.getY(), 100, playbackBounds.getHeight());
+    }
+    else
+    {
+        goToStartButton.setBounds(currentX, playbackBounds.getY() + 2, 28, playbackBounds.getHeight() - 4);
+        currentX += 32;
+        playButton.setBounds(currentX, playbackBounds.getY() + 2, 28, playbackBounds.getHeight() - 4);
+        currentX += 32;
+        stopButton.setBounds(currentX, playbackBounds.getY() + 2, 28, playbackBounds.getHeight() - 4);
+        currentX += 32;
+        goToEndButton.setBounds(currentX, playbackBounds.getY() + 2, 28, playbackBounds.getHeight() - 4);
+    }
+
+    // Position tool buttons within container
+    this->toolContainerBounds = toolContainerBounds;  // Store for painting
     const int toolButtonSize = 32;
     const int toolContainerPadding = 4;
-    const int numToolButtons = pluginMode ? 4 : 6;
-    const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
-    const int playbackWidth = pluginMode ? 200 : 120;
-    const int timeWidth = 160;
-    const int centerGap = 16;
-    const int centerTotalWidth = playbackWidth + centerGap + toolContainerWidth + centerGap + timeWidth;
+    auto toolArea = toolContainerBounds.reduced(toolContainerPadding, toolContainerPadding);
+    int toolX = toolArea.getX();
 
-    // Right side - parameters button
-    const int rightButtonSize = 28;
-    auto rightButtonArea = bounds.removeFromRight(rightButtonSize + 10);
-    const int rightButtonY =
-        rightButtonArea.getY() + (rightButtonArea.getHeight() - rightButtonSize) / 2;
-    parametersButton.setBounds(rightButtonArea.getX() + 10, rightButtonY,
-                               rightButtonSize, rightButtonSize);
+    selectModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
+    stretchModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
+    drawModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
+    splitModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
 
-    // Right side - status/progress
-    auto rightBounds = bounds.removeFromRight(200);
+    if (!pluginMode)
+    {
+        followButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+        toolX += toolButtonSize;
+        loopButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    }
+
+    // Position status/progress in right area
     if (showingStatus && !showingProgress)
     {
         statusLabel.setBounds(rightBounds.removeFromLeft(120));
@@ -217,59 +345,9 @@ void ToolbarComponent::resized()
         progressBar.setBounds(progressArea.withHeight(progressBarHeight));
     }
 
-    // Hide zoom controls
+    // Hide zoom controls (not used in current layout)
     zoomLabel.setVisible(false);
     zoomSlider.setVisible(false);
-
-    // Center section - calculate starting X for centering
-    int centerStartX = (getWidth() - centerTotalWidth) / 2;
-    int currentX = centerStartX;
-
-    // Playback controls (or plugin mode buttons) - centered
-    if (pluginMode)
-    {
-        araModeLabel.setBounds(currentX, bounds.getY(), 90, bounds.getHeight());
-        currentX += 98;
-        reanalyzeButton.setBounds(currentX, bounds.getY(), 100, bounds.getHeight());
-        currentX += 100;
-    }
-    else
-    {
-        goToStartButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
-        currentX += 32;
-        playButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
-        currentX += 32;
-        stopButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
-        currentX += 32;
-        goToEndButton.setBounds(currentX, bounds.getY() + 4, 28, bounds.getHeight() - 8);
-        currentX += 28;
-    }
-    currentX += centerGap;
-
-    // Edit mode buttons in a container - centered
-    toolContainerBounds = juce::Rectangle<int>(currentX, bounds.getY() + 2, toolContainerWidth, bounds.getHeight() - 4);
-    auto toolArea = toolContainerBounds.reduced(toolContainerPadding, toolContainerPadding);
-    int toolX = toolArea.getX();
-    selectModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    toolX += toolButtonSize;
-    stretchModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    toolX += toolButtonSize;
-    drawModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    toolX += toolButtonSize;
-    splitModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    toolX += toolButtonSize;
-    if (!pluginMode)
-        followButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    if (!pluginMode)
-    {
-        toolX += toolButtonSize;
-        loopButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
-    }
-
-    currentX += toolContainerWidth + centerGap;
-
-    // Time display - centered
-    timeLabel.setBounds(currentX, bounds.getY() + 2, timeWidth, bounds.getHeight() - 4);
 }
 
 void ToolbarComponent::buttonClicked(juce::Button* button)

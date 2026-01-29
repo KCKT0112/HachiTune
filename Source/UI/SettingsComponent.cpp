@@ -238,6 +238,201 @@ SettingsComponent::SettingsComponent(
     setSize(720, 420);
   else
     setSize(820, 620);
+
+  // Setup Kiwi constraint layout
+  setupConstraints();
+}
+
+void SettingsComponent::setupConstraints() {
+  // Create variables for container (this component)
+  containerVars = layout.createComponentVars("container");
+
+  // Create variables for sidebar and tabs
+  sidebarVars = layout.createComponentVars("sidebar");
+  generalTabButtonVars = layout.createComponentVars("generalTabButton");
+  audioTabButtonVars = layout.createComponentVars("audioTabButton");
+
+  // Create variables for content area
+  contentVars = layout.createComponentVars("content");
+  titleVars = layout.createComponentVars("title");
+  cardVars = layout.createComponentVars("card");
+
+  // Container constraints (will be updated in resized())
+  containerWidthConstraint = containerVars.width == 800.0;
+  containerHeightConstraint = containerVars.height == 600.0;
+  layout.addConstraint(containerVars.left == 0.0);
+  layout.addConstraint(containerVars.top == 0.0);
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
+
+  // Sidebar constraints (140px width, 16px from left, 16px from top/bottom)
+  layout.addConstraint(sidebarVars.left == containerVars.left + 16.0);
+  layout.addConstraint(sidebarVars.top == containerVars.top + 16.0);
+  layout.addConstraint(sidebarVars.width == 140.0);
+  layout.addConstraint(sidebarVars.bottom == containerVars.bottom - 16.0);
+
+  // Tab buttons (inside sidebar, 10px padding, 32px height, 6px gap)
+  layout.addConstraint(generalTabButtonVars.left == sidebarVars.left + 10.0);
+  layout.addConstraint(generalTabButtonVars.top == sidebarVars.top + 10.0);
+  layout.addConstraint(generalTabButtonVars.right == sidebarVars.right - 10.0);
+  layout.addConstraint(generalTabButtonVars.height == 32.0);
+
+  layout.addConstraint(audioTabButtonVars.left == sidebarVars.left + 10.0);
+  layout.addConstraint(audioTabButtonVars.top == generalTabButtonVars.bottom + 6.0);
+  layout.addConstraint(audioTabButtonVars.right == sidebarVars.right - 10.0);
+  layout.addConstraint(audioTabButtonVars.height == 32.0);
+
+  // Title area (34px height, 10px gap from sidebar, 6px gap below)
+  layout.addConstraint(titleVars.left == sidebarVars.right + 10.0 + 16.0);
+  layout.addConstraint(titleVars.top == containerVars.top + 16.0);
+  layout.addConstraint(titleVars.right == containerVars.right - 16.0);
+  layout.addConstraint(titleVars.height == 34.0);
+
+  // Card bounds (fills remaining space)
+  layout.addConstraint(cardVars.left == sidebarVars.right + 10.0 + 16.0);
+  layout.addConstraint(cardVars.top == titleVars.bottom + 6.0);
+  layout.addConstraint(cardVars.right == containerVars.right - 16.0);
+  layout.addConstraint(cardVars.bottom == containerVars.bottom - 16.0);
+
+  // Content area (inside card, 16px horizontal, 12px vertical padding)
+  layout.addConstraint(contentVars.left == cardVars.left + 16.0);
+  layout.addConstraint(contentVars.top == cardVars.top + 12.0);
+  layout.addConstraint(contentVars.right == cardVars.right - 16.0);
+  layout.addConstraint(contentVars.bottom == cardVars.bottom - 12.0);
+}
+
+void SettingsComponent::updateLayoutConstraints() {
+  // Remove old size constraints
+  layout.removeConstraint(containerWidthConstraint);
+  layout.removeConstraint(containerHeightConstraint);
+
+  // Create new size constraints with current dimensions
+  containerWidthConstraint = containerVars.width == static_cast<double>(getWidth());
+  containerHeightConstraint = containerVars.height == static_cast<double>(getHeight());
+
+  // Add new constraints
+  layout.addConstraint(containerWidthConstraint);
+  layout.addConstraint(containerHeightConstraint);
+}
+
+void SettingsComponent::layoutGeneralTab() {
+  // Note: We don't need to explicitly remove old constraints
+  // The layout manager will handle constraint updates
+  currentRowVars.clear();
+
+  const double rowHeight = 32.0;
+  const double rowGap = 8.0;
+  const double labelWidth = 150.0;
+  const double controlWidth = 190.0;
+  const double sectionHeight = 20.0;
+  const double sectionGap = 10.0;
+
+  double currentY = contentVars.top.value();
+
+  // Section label
+  auto sectionVars = layout.createComponentVars("generalSection");
+  layout.addConstraint(sectionVars.left == contentVars.left);
+  layout.addConstraint(sectionVars.top == currentY);
+  layout.addConstraint(sectionVars.width == contentVars.width);
+  layout.addConstraint(sectionVars.height == sectionHeight);
+  layout.applyComponentVars(&generalSectionLabel, sectionVars);
+  currentY += sectionHeight + sectionGap;
+
+  // Helper to create a row
+  auto createRow = [&](juce::Label &label, juce::Component &control) {
+    RowVars row;
+    row.label = layout.createComponentVars("row_label_" + juce::String(currentRowVars.size()));
+    row.control = layout.createComponentVars("row_control_" + juce::String(currentRowVars.size()));
+
+    layout.addConstraint(row.label.left == contentVars.left);
+    layout.addConstraint(row.label.top == currentY);
+    layout.addConstraint(row.label.width == labelWidth);
+    layout.addConstraint(row.label.height == rowHeight);
+
+    layout.addConstraint(row.control.right == contentVars.right);
+    layout.addConstraint(row.control.top == currentY + 2.0);
+    layout.addConstraint(row.control.width == controlWidth);
+    layout.addConstraint(row.control.height == rowHeight - 4.0);
+
+    layout.applyComponentVars(&label, row.label);
+    layout.applyComponentVars(&control, row.control);
+
+    currentRowVars.push_back(row);
+    currentY += rowHeight + rowGap;
+  };
+
+  // Layout rows
+  createRow(languageLabel, languageComboBox);
+  createRow(uiScaleLabel, uiScaleComboBox);
+  createRow(deviceLabel, deviceComboBox);
+
+  if (gpuDeviceLabel.isVisible()) {
+    createRow(gpuDeviceLabel, gpuDeviceComboBox);
+  }
+
+  createRow(pitchDetectorLabel, pitchDetectorComboBox);
+
+  // Info label (56px height, 12px gap)
+  auto infoVars = layout.createComponentVars("infoLabel");
+  layout.addConstraint(infoVars.left == contentVars.left);
+  layout.addConstraint(infoVars.top == currentY);
+  layout.addConstraint(infoVars.width == contentVars.width);
+  layout.addConstraint(infoVars.height == 56.0);
+  layout.applyComponentVars(&infoLabel, infoVars);
+}
+
+void SettingsComponent::layoutAudioTab() {
+  // Note: We don't need to explicitly remove old constraints
+  // The layout manager will handle constraint updates
+  currentRowVars.clear();
+
+  const double rowHeight = 32.0;
+  const double rowGap = 8.0;
+  const double labelWidth = 150.0;
+  const double controlWidth = 190.0;
+  const double sectionHeight = 20.0;
+  const double sectionGap = 10.0;
+
+  double currentY = contentVars.top.value();
+
+  // Section label
+  auto sectionVars = layout.createComponentVars("audioSection");
+  layout.addConstraint(sectionVars.left == contentVars.left);
+  layout.addConstraint(sectionVars.top == currentY);
+  layout.addConstraint(sectionVars.width == contentVars.width);
+  layout.addConstraint(sectionVars.height == sectionHeight);
+  layout.applyComponentVars(&audioSectionLabel, sectionVars);
+  currentY += sectionHeight + sectionGap;
+
+  // Helper to create a row
+  auto createRow = [&](juce::Label &label, juce::Component &control) {
+    RowVars row;
+    row.label = layout.createComponentVars("row_label_" + juce::String(currentRowVars.size()));
+    row.control = layout.createComponentVars("row_control_" + juce::String(currentRowVars.size()));
+
+    layout.addConstraint(row.label.left == contentVars.left);
+    layout.addConstraint(row.label.top == currentY);
+    layout.addConstraint(row.label.width == labelWidth);
+    layout.addConstraint(row.label.height == rowHeight);
+
+    layout.addConstraint(row.control.right == contentVars.right);
+    layout.addConstraint(row.control.top == currentY + 2.0);
+    layout.addConstraint(row.control.width == controlWidth);
+    layout.addConstraint(row.control.height == rowHeight - 4.0);
+
+    layout.applyComponentVars(&label, row.label);
+    layout.applyComponentVars(&control, row.control);
+
+    currentRowVars.push_back(row);
+    currentY += rowHeight + rowGap;
+  };
+
+  // Layout rows
+  createRow(audioDeviceTypeLabel, audioDeviceTypeComboBox);
+  createRow(audioOutputLabel, audioOutputComboBox);
+  createRow(sampleRateLabel, sampleRateComboBox);
+  createRow(bufferSizeLabel, bufferSizeComboBox);
+  createRow(outputChannelsLabel, outputChannelsComboBox);
 }
 
 SettingsComponent::~SettingsComponent() {
@@ -302,71 +497,41 @@ void SettingsComponent::paint(juce::Graphics &g) {
 }
 
 void SettingsComponent::resized() {
-  auto bounds = getLocalBounds().reduced(16);
   separatorYs.clear();
 
-  const int sidebarWidth = 140;
-  sidebarBounds = bounds.removeFromLeft(sidebarWidth);
+  // Update container size constraints
+  updateLayoutConstraints();
 
-  auto tabArea = sidebarBounds.reduced(10, 10);
-  const int tabHeight = 32;
-  generalTabButton.setBounds(tabArea.removeFromTop(tabHeight));
-  tabArea.removeFromTop(6);
-  audioTabButton.setBounds(tabArea.removeFromTop(tabHeight));
+  // Apply layout to fixed components
+  layout.applyComponentVars(&generalTabButton, generalTabButtonVars);
+  layout.applyComponentVars(&audioTabButton, audioTabButtonVars);
+  layout.applyComponentVars(&titleLabel, titleVars);
 
-  bounds.removeFromLeft(10);
+  // Update bounds for painting (extract from solved variables)
+  sidebarBounds = juce::Rectangle<int>(
+    static_cast<int>(sidebarVars.left.value()),
+    static_cast<int>(sidebarVars.top.value()),
+    static_cast<int>(sidebarVars.width.value()),
+    static_cast<int>(sidebarVars.height.value())
+  );
 
-  auto titleArea = bounds.removeFromTop(34);
-  titleLabel.setBounds(titleArea);
-  bounds.removeFromTop(6);
+  cardBounds = juce::Rectangle<int>(
+    static_cast<int>(cardVars.left.value()),
+    static_cast<int>(cardVars.top.value()),
+    static_cast<int>(cardVars.width.value()),
+    static_cast<int>(cardVars.height.value())
+  );
 
-  cardBounds = bounds;
-  auto content = cardBounds.reduced(16, 12);
-
-  const int rowHeight = 32;
-  const int rowGap = 8;
-  const int labelWidth = 150;
-  const int controlWidth = 190;
-
-  auto layoutRow = [&](juce::Label &label, juce::Component &control) {
-    auto row = content.removeFromTop(rowHeight);
-    auto labelArea = row.removeFromLeft(labelWidth);
-    auto controlArea = row.removeFromRight(controlWidth);
-    label.setBounds(labelArea);
-    control.setBounds(controlArea.reduced(0, 2));
-    content.removeFromTop(rowGap);
-  };
-
+  // Layout active tab content
   if (activeTab == SettingsTab::General) {
-    generalSectionLabel.setBounds(content.removeFromTop(20));
-    separatorYs.add(generalSectionLabel.getBottom() + 6);
-    content.removeFromTop(10);
-
-    layoutRow(languageLabel, languageComboBox);
-    layoutRow(uiScaleLabel, uiScaleComboBox);
-    layoutRow(deviceLabel, deviceComboBox);
-
-    if (gpuDeviceLabel.isVisible()) {
-      layoutRow(gpuDeviceLabel, gpuDeviceComboBox);
-    }
-
-    layoutRow(pitchDetectorLabel, pitchDetectorComboBox);
-
-    infoLabel.setBounds(content.removeFromTop(56));
-    content.removeFromTop(12);
-  }
-
-  if (!pluginMode && deviceManager != nullptr &&
-      activeTab == SettingsTab::Audio) {
-    audioSectionLabel.setBounds(content.removeFromTop(20));
-    separatorYs.add(audioSectionLabel.getBottom() + 6);
-    content.removeFromTop(10);
-
-    layoutRow(audioDeviceTypeLabel, audioDeviceTypeComboBox);
-    layoutRow(audioOutputLabel, audioOutputComboBox);
-    layoutRow(sampleRateLabel, sampleRateComboBox);
-    layoutRow(bufferSizeLabel, bufferSizeComboBox);
-    layoutRow(outputChannelsLabel, outputChannelsComboBox);
+    layoutGeneralTab();
+    // Add separator line position
+    separatorYs.add(static_cast<int>(contentVars.top.value() + 20.0 + 6.0));
+  } else if (!pluginMode && deviceManager != nullptr &&
+             activeTab == SettingsTab::Audio) {
+    layoutAudioTab();
+    // Add separator line position
+    separatorYs.add(static_cast<int>(contentVars.top.value() + 20.0 + 6.0));
   }
 }
 
