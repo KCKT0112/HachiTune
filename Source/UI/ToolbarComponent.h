@@ -106,6 +106,9 @@ private:
 
     // Edit mode buttons
     ToolButton selectModeButton { "Select" };
+    ToolButton modulationModeButton { "Modulation" };
+    ToolButton driftModeButton  { "Drift" };
+    ToolButton slopeModeButton  { "Slope" };
     ToolButton stretchModeButton { "Stretch" };
     ToolButton drawModeButton { "Draw" };
     ToolButton splitModeButton { "Split" };

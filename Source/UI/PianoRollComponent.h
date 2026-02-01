@@ -24,6 +24,9 @@ class PitchUndoManager;
  */
 enum class EditMode {
   Select, // Normal selection and dragging
+  Modulation,
+  Drift,
+  Slope,
   Stretch, // Stretch note timing
   Draw,   // Pitch drawing mode
   Split   // Note splitting mode

@@ -17,6 +17,15 @@ ToolbarComponent::ToolbarComponent()
     auto stretchIcon = SvgUtils::loadSvg(BinaryData::stretch_24_filled_svg, BinaryData::stretch_24_filled_svgSize, juce::Colours::white);
     auto pitchEditIcon = SvgUtils::loadSvg(BinaryData::pitch_edit_24_filled_svg, BinaryData::pitch_edit_24_filled_svgSize, juce::Colours::white);
     auto scissorsIcon = SvgUtils::loadSvg(BinaryData::scissors_24_filled_svg, BinaryData::scissors_24_filled_svgSize, juce::Colours::white);
+
+    const juce::String modulationIconSvg =
+        R"(<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M2,12 L6,8 L10,16 L14,4 L18,12 L22,10"/></svg>)";
+    const juce::String driftIconSvg =
+        R"(<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M2,12 L5,10 L7,9.5 L10,10  L16,13.5 L18,14 L20,13.5 L22,12"/></svg>)";
+    auto modulationIcon = SvgUtils::createDrawableFromSvg(modulationIconSvg, juce::Colours::white);
+    auto driftIcon = SvgUtils::createDrawableFromSvg(driftIconSvg, juce::Colours::white);
+    auto slopeIcon = SvgUtils::loadSvg(BinaryData::slope_24_svg, BinaryData::slope_24_svgSize, juce::Colours::white);
+    
     auto followIcon = SvgUtils::loadSvg(BinaryData::follow24filled_svg, BinaryData::follow24filled_svgSize, juce::Colours::white);
     auto loopIcon = SvgUtils::loadSvg(BinaryData::loop24filled_svg, BinaryData::loop24filled_svgSize, juce::Colours::white);
     const juce::String parametersIconSvg =
@@ -28,6 +37,9 @@ ToolbarComponent::ToolbarComponent()
     goToStartButton.setImages(startIcon.get());
     goToEndButton.setImages(endIcon.get());
     selectModeButton.setImages(cursorIcon.get());
+    modulationModeButton.setImages(modulationIcon.get());
+    driftModeButton.setImages(driftIcon.get());
+    slopeModeButton.setImages(slopeIcon.get());
     stretchModeButton.setImages(stretchIcon.get());
     drawModeButton.setImages(pitchEditIcon.get());
     splitModeButton.setImages(scissorsIcon.get());
@@ -41,6 +53,9 @@ ToolbarComponent::ToolbarComponent()
     stopButton.setEdgeIndent(6);
     goToEndButton.setEdgeIndent(4);
     selectModeButton.setEdgeIndent(6);
+    modulationModeButton.setEdgeIndent(6);
+    driftModeButton.setEdgeIndent(6);
+    slopeModeButton.setEdgeIndent(6);
     stretchModeButton.setEdgeIndent(6);
     drawModeButton.setEdgeIndent(6);
     splitModeButton.setEdgeIndent(6);
@@ -58,6 +73,9 @@ ToolbarComponent::ToolbarComponent()
     addAndMakeVisible(stopButton);
     addAndMakeVisible(goToEndButton);
     addAndMakeVisible(selectModeButton);
+    addAndMakeVisible(modulationModeButton);
+    addAndMakeVisible(driftModeButton);
+    addAndMakeVisible(slopeModeButton);
     addAndMakeVisible(stretchModeButton);
     addAndMakeVisible(drawModeButton);
     addAndMakeVisible(splitModeButton);
@@ -80,6 +98,9 @@ ToolbarComponent::ToolbarComponent()
     stopButton.addListener(this);
     goToEndButton.addListener(this);
     selectModeButton.addListener(this);
+    modulationModeButton.addListener(this);
+    driftModeButton.addListener(this);
+    slopeModeButton.addListener(this);
     stretchModeButton.addListener(this);
     drawModeButton.addListener(this);
     splitModeButton.addListener(this);
@@ -90,6 +111,9 @@ ToolbarComponent::ToolbarComponent()
 
     // Set localized text (tooltips for icon buttons)
     selectModeButton.setTooltip(TR("toolbar.select"));
+    modulationModeButton.setTooltip(TR("toolbar.modulation"));
+    driftModeButton.setTooltip(TR("toolbar.drift"));
+    slopeModeButton.setTooltip(TR("toolbar.slope"));
     stretchModeButton.setTooltip(TR("toolbar.stretch"));
     drawModeButton.setTooltip(TR("toolbar.draw"));
     splitModeButton.setTooltip(TR("toolbar.split"));
@@ -188,7 +212,7 @@ void ToolbarComponent::resized()
     // Calculate center section width for centering
     const int toolButtonSize = 32;
     const int toolContainerPadding = 4;
-    const int numToolButtons = pluginMode ? 4 : 6;
+    const int numToolButtons = pluginMode ? 7 : 9;
     const int toolContainerWidth = toolButtonSize * numToolButtons + toolContainerPadding * 2;
     const int playbackWidth = pluginMode ? 200 : 120;
     const int timeWidth = 160;
@@ -252,6 +276,12 @@ void ToolbarComponent::resized()
     int toolX = toolArea.getX();
     selectModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
     toolX += toolButtonSize;
+    modulationModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
+    driftModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
+    slopeModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
+    toolX += toolButtonSize;
     stretchModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
     toolX += toolButtonSize;
     drawModeButton.setBounds(toolX, toolArea.getY(), toolButtonSize, toolArea.getHeight());
@@ -300,6 +330,24 @@ void ToolbarComponent::buttonClicked(juce::Button* button)
         setEditMode(EditMode::Select);
         if (onEditModeChanged)
             onEditModeChanged(EditMode::Select);
+    }
+    else if (button == &modulationModeButton)
+    {
+        setEditMode(EditMode::Modulation);
+        if (onEditModeChanged)
+            onEditModeChanged(EditMode::Modulation);
+    }
+    else if (button == &driftModeButton)
+    {
+        setEditMode(EditMode::Drift);
+        if (onEditModeChanged)
+            onEditModeChanged(EditMode::Drift);
+    }
+    else if (button == &slopeModeButton)
+    {
+        setEditMode(EditMode::Slope);
+        if (onEditModeChanged)
+            onEditModeChanged(EditMode::Slope);
     }
     else if (button == &stretchModeButton)
     {
@@ -368,6 +416,9 @@ void ToolbarComponent::setEditMode(EditMode mode)
 {
     currentEditModeInt = static_cast<int>(mode);
     selectModeButton.setActive(mode == EditMode::Select);
+    modulationModeButton.setActive(mode == EditMode::Modulation);
+    driftModeButton.setActive(mode == EditMode::Drift);
+    slopeModeButton.setActive(mode == EditMode::Slope);
     stretchModeButton.setActive(mode == EditMode::Stretch);
     drawModeButton.setActive(mode == EditMode::Draw);
     splitModeButton.setActive(mode == EditMode::Split);
