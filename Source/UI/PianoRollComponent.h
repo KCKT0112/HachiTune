@@ -24,9 +24,9 @@ class PitchUndoManager;
  */
 enum class EditMode {
   Select, // Normal selection and dragging
-  Modulation,
-  Drift,
-  Slope,
+  Modulation, // Note Edit: Modulate
+  Drift, // Note Edit: Drift
+  Slope, // Note Edit: Slope
   Stretch, // Stretch note timing
   Draw,   // Pitch drawing mode
   Split   // Note splitting mode
@@ -149,8 +149,14 @@ private:
   void reapplyBasePitchForNote(
       Note *note); // Recalculate F0 from base pitch + delta after undo/redo
   void prepareDragBasePreview();
+  void prepareNoteEditPreview();
   void applyDragBasePreview(float pitchOffsetSemitones);
+  void applyNoteEditPreview(const std::vector<float> &deltaPitch);
   void restoreDragBasePreview();
+  bool isNoteEditMode() const {
+    return editMode == EditMode::Modulation || editMode == EditMode::Drift ||
+           editMode == EditMode::Slope;
+  }
   struct StretchBoundary {
     Note *left = nullptr;
     Note *right = nullptr;
@@ -194,6 +200,7 @@ private:
   // Pitch drawing helpers
   void applyPitchDrawing(float x, float y);
   void commitPitchDrawing();
+  void commitNoteEditing();
   void applyPitchPoint(int frameIndex, int midiCents);
   void startNewPitchCurve(int frameIndex, int midiCents);
 
@@ -253,6 +260,23 @@ private:
   int lastDrawValueCents = 0;
   DrawCurve *activeDrawCurve = nullptr;
   std::deque<std::unique_ptr<DrawCurve>> drawCurves;
+
+  // Note edit (Modulation, Drift, Slope) state
+  bool isNoteEditing = false;
+  Note *neNote = nullptr;
+  float neStartX = 0.0f;
+  float neStartY = 0.0f;
+  float neOriginalPitchOffset = 0.0f;
+  float neOriginalMidiNote = 60.0f; // Original MIDI note before note edit
+  float neBoundaryF0Start = 0.0f; // F0 value before note start (for smooth transition)
+  float neBoundaryF0End = 0.0f; // F0 value after note end (for smooth transition)
+  std::vector<float> neOriginalF0Values; // F0 values before drag for undo
+  std::vector<float> neOriginalDeltaPitch;
+  int nePreviewStartFrame = -1;
+  int nePreviewEndFrame = -1;
+  std::vector<float> nePreviewWeights;
+  std::vector<float> neBasePitchSnapshot;
+  std::vector<float> neF0Snapshot;
 
   // Split mode guide line
   float splitGuideX =
