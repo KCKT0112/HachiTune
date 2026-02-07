@@ -266,8 +266,6 @@ private:
   Note *neNote = nullptr;
   float neStartX = 0.0f;
   float neStartY = 0.0f;
-  float neOriginalPitchOffset = 0.0f;
-  float neOriginalMidiNote = 60.0f; // Original MIDI note before note edit
   float neBoundaryF0Start = 0.0f; // F0 value before note start (for smooth transition)
   float neBoundaryF0End = 0.0f; // F0 value after note end (for smooth transition)
   std::vector<float> neOriginalF0Values; // F0 values before drag for undo
@@ -275,7 +273,7 @@ private:
   int nePreviewStartFrame = -1;
   int nePreviewEndFrame = -1;
   std::vector<float> nePreviewWeights;
-  std::vector<float> neBasePitchSnapshot;
+  std::vector<float> neDeltaPitchSnapshot;
   std::vector<float> neF0Snapshot;
 
   // Split mode guide line

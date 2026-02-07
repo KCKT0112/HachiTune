@@ -1219,13 +1219,11 @@ void PianoRollComponent::mouseDown(const juce::MouseEvent &e) {
       neOriginalDeltaPitch = delta;
       note->setDeltaPitch(std::move(delta));
 
-      // Start single note dragging
+      // Start single note editing
       isNoteEditing = true;
       neNote = note;
       neStartX = adjustedX;
       neStartY = adjustedY;
-      neOriginalPitchOffset = note->getPitchOffset();
-      neOriginalMidiNote = note->getMidiNote();
 
       // Save boundary F0 values and original F0 for undo
       int f0Size = static_cast<int>(audioData.f0.size());
@@ -1396,14 +1394,13 @@ void PianoRollComponent::mouseDrag(const juce::MouseEvent &e) {
 
     float adjustedRatio = deltaY * 0.25f / pixelsPerSemitone;
     //if (adjustedRatio > 0.99) adjustedRatio = 0.99f;
-    std::vector<float> newDeltaPitch, deltaDeltaPitch;
+    std::vector<float> newDeltaPitch;
     newDeltaPitch.reserve(neOriginalDeltaPitch.size());
     for (float dp : neOriginalDeltaPitch) {
       newDeltaPitch.push_back(dp + (dp - avgDeltaPitch) * adjustedRatio);
-      deltaDeltaPitch.push_back(newDeltaPitch.back() - dp);
     }
 
-    applyNoteEditPreview(deltaDeltaPitch);
+    applyNoteEditPreview(newDeltaPitch);
     neNote->setDeltaPitch(std::move(newDeltaPitch));
     neNote->markDirty();
     if (shouldRepaint) {
@@ -2908,13 +2905,13 @@ void PianoRollComponent::prepareNoteEditPreview() {
   nePreviewEndFrame = neNote->getEndFrame();
 
   const int count = nePreviewEndFrame - nePreviewStartFrame;
-  neBasePitchSnapshot.resize(static_cast<size_t>(count));
+  neDeltaPitchSnapshot.resize(static_cast<size_t>(count));
   neF0Snapshot.resize(static_cast<size_t>(count));
 
   for (int i = 0; i < count; ++i) {
     const int frame = nePreviewStartFrame + i;
-    neBasePitchSnapshot[static_cast<size_t>(i)] =
-        audioData.basePitch[static_cast<size_t>(frame)];
+    neDeltaPitchSnapshot[static_cast<size_t>(i)] =
+        audioData.deltaPitch[static_cast<size_t>(frame)];
     neF0Snapshot[static_cast<size_t>(i)] =
         audioData.f0[static_cast<size_t>(frame)];
   }
@@ -2963,13 +2960,13 @@ void PianoRollComponent::applyDragBasePreview(float pitchOffsetSemitones) {
 void PianoRollComponent::applyNoteEditPreview(const std::vector<float> &deltaPitch) {
   if (!project || nePreviewStartFrame < 0 ||
       nePreviewEndFrame <= nePreviewStartFrame ||
-      neBasePitchSnapshot.empty())
+      neDeltaPitchSnapshot.empty())
     return;
 
   auto &audioData = project->getAudioData();
   const int count = nePreviewEndFrame - nePreviewStartFrame;
 
-  if (audioData.basePitch.size() < static_cast<size_t>(nePreviewEndFrame))
+  if (audioData.deltaPitch.size() < static_cast<size_t>(nePreviewEndFrame))
     return;
 
   if (audioData.baseF0.size() < audioData.basePitch.size())
@@ -2977,14 +2974,10 @@ void PianoRollComponent::applyNoteEditPreview(const std::vector<float> &deltaPit
 
   for (int i = 0; i < count; ++i) {
     const int frame = nePreviewStartFrame + i;
-    const float baseMidi = neBasePitchSnapshot[static_cast<size_t>(i)] +
-     deltaPitch[static_cast<size_t>(i)] * nePreviewWeights[static_cast<size_t>(i)];
-    audioData.basePitch[static_cast<size_t>(frame)] = baseMidi;
-    audioData.baseF0[static_cast<size_t>(frame)] = midiToFreq(baseMidi);
-
-    const float deltaMidi = // deltaPitch[static_cast<size_t>(i)];
+    const float baseMidi = audioData.basePitch[static_cast<size_t>(frame)];
+    const float deltaMidi =
         (frame < static_cast<int>(audioData.deltaPitch.size()))
-            ? audioData.deltaPitch[static_cast<size_t>(frame)]
+            ? audioData.deltaPitch[static_cast<size_t>(frame)] = deltaPitch[static_cast<size_t>(i)] * nePreviewWeights[static_cast<size_t>(i)]
             : 0.0f;
     if (frame < static_cast<int>(audioData.voicedMask.size()) &&
         !audioData.voicedMask[static_cast<size_t>(frame)]) {
@@ -3144,9 +3137,9 @@ void PianoRollComponent::commitNoteEditing() {
 
     // Update note's midiNote with final offset (bake pitchOffset into
     // midiNote)
-    neNote->setMidiNote(originalMidiNote + newOffset);
-    neNote->setPitchOffset(
-        0.0f); // Reset offset since it's baked into midiNote
+    // neNote->setMidiNote(originalMidiNote + newOffset);
+    // neNote->setPitchOffset(
+    //     0.0f); // Reset offset since it's baked into midiNote
 
     // Find adjacent notes to expand dirty range (basePitch smoothing affects
     // neighbors)
@@ -3181,46 +3174,18 @@ void PianoRollComponent::commitNoteEditing() {
 
     // Create undo action
     if (undoManager) {
-      std::vector<F0FrameEdit> f0Edits;
-      for (int i = startFrame; i < endFrame && i < f0Size; ++i) {
-        int localIdx = i - startFrame;
-        F0FrameEdit edit;
-        edit.idx = i;
-        edit.oldF0 = (localIdx < static_cast<int>(neOriginalF0Values.size()))
-                          ? neOriginalF0Values[localIdx]
-                          : 0.0f;
-        edit.newF0 = audioData.f0[static_cast<size_t>(i)];
-        f0Edits.push_back(edit);
-      }
-      // // Capture frame range for undo callback
-      // int capturedExpandedStart = expandedStart;
-      // int capturedExpandedEnd = expandedEnd;
-      // int capturedF0Size = f0Size;
-      // auto action = std::make_unique<NotePitchDragAction>(
-      //     neNote, &audioData.f0, neOriginalMidiNote,
-      //     neOriginalMidiNote + newOffset, std::move(f0Edits),
-      //     [this, capturedExpandedStart, capturedExpandedEnd,
-      //       capturedF0Size](Note *n) {
-      //       if (project) {
-      //         PitchCurveProcessor::rebuildBaseFromNotes(*project);
-      //         PitchCurveProcessor::composeF0InPlace(*project,
-      //                                               /*applyUvMask=*/false);
-      //         // Invalidate base pitch cache
-      //         invalidateBasePitchCache();
-      //         // Set dirty range for synthesis (use expanded range)
-      //         int smoothStart = std::max(0, capturedExpandedStart - 60);
-      //         int smoothEnd =
-      //             std::min(capturedF0Size, capturedExpandedEnd + 60);
-      //         project->setF0DirtyRange(smoothStart, smoothEnd);
-      //         // Clear note's dirty flag since we're using F0 dirty range
-      //         // instead This prevents getDirtyFrameRange() from expanding the
-      //         // range unnecessarily
-      //         if (n) {
-      //           n->clearDirty();
-      //         }
-      //       }
-      //     });
-      // undoManager->addAction(std::move(action));
+      // std::vector<F0FrameEdit> f0Edits;
+      // for (int i = startFrame; i < endFrame && i < f0Size; ++i) {
+      //   int localIdx = i - startFrame;
+      //   F0FrameEdit edit;
+      //   edit.idx = i;
+      //   edit.oldF0 = (localIdx < static_cast<int>(neOriginalF0Values.size()))
+      //                     ? neOriginalF0Values[localIdx]
+      //                     : 0.0f;
+      //   edit.newF0 = audioData.f0[static_cast<size_t>(i)];
+      //   f0Edits.push_back(edit);
+      // }
+      // TODO: Add undo action for note editing
     }
 
     if (onPitchEdited)
@@ -3236,7 +3201,7 @@ void PianoRollComponent::commitNoteEditing() {
   nePreviewStartFrame = -1;
   nePreviewEndFrame = -1;
   nePreviewWeights.clear();
-  neBasePitchSnapshot.clear();
+  neDeltaPitchSnapshot.clear();
   neF0Snapshot.clear();
 }
 
