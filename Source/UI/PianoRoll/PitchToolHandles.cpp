@@ -161,7 +161,7 @@ int PitchToolHandles::hitTest(float worldX, float worldY, float tolerance) const
     auto center = handles[i].bounds.getCentre();
     float distance = center.getDistanceFrom(juce::Point<float>(worldX, worldY));
 
-    if (distance <= std::max(tolerance, HANDLE_SIZE * 0.9f)) {
+    if (distance <= std::max(tolerance, handleSize * 0.9f)) {
       if (distance < bestDistance - 0.001f ||
           (std::abs(distance - bestDistance) < 0.001f && i > bestIndex)) {
         bestDistance = distance;
@@ -180,9 +180,9 @@ void PitchToolHandles::addHandle(HandleType type, float worldX, float worldY, No
   h.color = getColorForType(type);
   
   // Center the handle bounds on the coordinate (now in world space)
-  float halfSize = HANDLE_SIZE * 0.5f;
+  float halfSize = handleSize * 0.5f;
   h.bounds = juce::Rectangle<float>(worldX - halfSize, worldY - halfSize, 
-                                   HANDLE_SIZE, HANDLE_SIZE);
+                                   handleSize, handleSize);
   
   handles.push_back(h);
 }

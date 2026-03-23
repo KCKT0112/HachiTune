@@ -250,7 +250,6 @@ private:
   void drawStretchGuides(juce::Graphics &g);
 #endif
   void updatePitchToolHandlesFromSelection();
-  Note *findNoteAtX(float x) const;
 
   float midiToY(float midiNote) const;
   float yToMidi(float y) const;

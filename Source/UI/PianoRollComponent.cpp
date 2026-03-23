@@ -1394,19 +1394,9 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
       }
     }
 
-    if (drawOverlays &&
-        (note.isSelected() || (&note == hoveredPitchToolNote)))
+    if (drawOverlays && note.isSelected())
     {
-      if (note.isSelected())
-      {
-        drawSelectedNoteOutline(x, y, renderedWidth, h);
-      }
-      else
-      {
-        g.setColour(APP_COLOR_PRIMARY.withAlpha(0.7f));
-        g.drawRoundedRectangle(x - 2.0f, y - 2.0f, renderedWidth + 4.0f, h + 4.0f,
-                               3.5f, 1.25f);
-      }
+      drawSelectedNoteOutline(x, y, renderedWidth, h);
 
       const auto handleBounds =
           getDeltaScaleHandleBounds(x, y, renderedWidth, h);
@@ -2132,9 +2122,36 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   if (editMode == EditMode::Select && showPitchToolOnMouseMove &&
       e.y >= headerHeight && e.x >= pianoKeysWidth)
   {
-    newHoveredToolNote = findNoteAtX(adjustedX);
-    if (newHoveredToolNote != nullptr && newHoveredToolNote->isRest())
-      newHoveredToolNote = nullptr;
+    const float hoverPadding = PitchToolHandles::handleSize * 0.5f;
+
+    if (hoveredPitchToolNote != nullptr && !hoveredPitchToolNote->isRest())
+    {
+      const float noteX =
+          framesToSeconds(hoveredPitchToolNote->getStartFrame()) * pixelsPerSecond;
+      const float noteW = std::max(
+          framesToSeconds(hoveredPitchToolNote->getDurationFrames()) *
+              pixelsPerSecond,
+          4.0f);
+      const float noteH = pixelsPerSemitone;
+      const float baseGridCenterY =
+          midiToY(hoveredPitchToolNote->getMidiNote()) + pixelsPerSemitone * 0.5f;
+      const float pitchOffsetPixels =
+          -hoveredPitchToolNote->getPitchOffset() * pixelsPerSemitone;
+      const float noteY = baseGridCenterY + pitchOffsetPixels - noteH * 0.5f;
+      const auto hoverBounds =
+          juce::Rectangle<float>(noteX, noteY, noteW, noteH)
+              .expanded(hoverPadding, hoverPadding);
+
+      if (hoverBounds.contains(adjustedX, adjustedY))
+        newHoveredToolNote = hoveredPitchToolNote;
+    }
+
+    if (newHoveredToolNote == nullptr)
+    {
+      newHoveredToolNote = findNoteAt(adjustedX, adjustedY);
+      if (newHoveredToolNote != nullptr && newHoveredToolNote->isRest())
+        newHoveredToolNote = nullptr;
+    }
   }
 
   const bool hoveredToolNoteChanged = newHoveredToolNote != hoveredPitchToolNote;
@@ -2147,7 +2164,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   // Pitch tool handle hover uses world-adjusted coordinates because the
   // handle model is stored in the same musical coordinate space as notes.
   if (editMode == EditMode::Select && pitchToolHandles && !pitchToolHandles->isEmpty() &&
-      e.y >= headerHeight && e.x >= pianoKeysWidth)
+      e.x >= pianoKeysWidth)
   {
     int hitIndex = pitchToolHandles->hitTest(adjustedX, adjustedY);
     if (hitIndex != hoveredPitchToolHandle)
@@ -3043,42 +3060,6 @@ Note *PianoRollComponent::findNoteAt(float x, float y)
   }
 
   return nullptr;
-}
-
-Note *PianoRollComponent::findNoteAtX(float x) const
-{
-  if (!project)
-    return nullptr;
-
-  Note *bestNote = nullptr;
-  float bestDistance = std::numeric_limits<float>::max();
-
-  for (auto &note : project->getNotes())
-  {
-    if (note.isRest())
-      continue;
-
-    const float noteX =
-        framesToSeconds(note.getStartFrame()) * pixelsPerSecond;
-    const float noteW = std::max(
-        framesToSeconds(note.getDurationFrames()) * pixelsPerSecond, 4.0f);
-    const float noteEndX = noteX + noteW;
-    if (x < noteX || x >= noteEndX)
-      continue;
-
-    const float noteCenterY =
-        midiToY(note.getAdjustedMidiNote()) + pixelsPerSemitone * 0.5f;
-    const float viewCenterY =
-        static_cast<float>(scrollY) + static_cast<float>(getVisibleContentHeight()) * 0.5f;
-    const float distance = std::abs(noteCenterY - viewCenterY);
-    if (distance < bestDistance)
-    {
-      bestDistance = distance;
-      bestNote = &note;
-    }
-  }
-
-  return bestNote;
 }
 
 void PianoRollComponent::updateScrollBars()

@@ -205,6 +205,7 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
   {
     // Clicked on empty area - start box selection
     project->deselectAllNotes();
+    owner_.hoveredPitchToolNote = nullptr;
     owner_.updatePitchToolHandlesFromSelection();
     owner_.boxSelector->startSelection(worldX, worldY);
     owner_.repaint();

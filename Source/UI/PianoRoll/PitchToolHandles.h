@@ -27,6 +27,7 @@ public:
   };
 
   PitchToolHandles();
+  static constexpr float handleSize = 11.0f;
 
   /**
    * Update handle positions based on current note selection.
@@ -79,8 +80,6 @@ public:
 private:
   std::vector<Handle> handles;
   int hoveredHandleIndex = -1;
-
-  static constexpr float HANDLE_SIZE = 11.0f;
 
   void addHandle(HandleType type, float worldX, float worldY, Note* note = nullptr);
   juce::Colour getColorForType(HandleType type) const;
