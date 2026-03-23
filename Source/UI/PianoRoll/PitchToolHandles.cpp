@@ -59,20 +59,20 @@ void PitchToolHandles::updateHandles(const std::vector<Note*>& selectedNotes,
   Note* primaryNote = selectedNotes.size() == 1 ? selectedNotes.front() : nullptr;
 
   // Add Handles
-  // 1. Tilt Left: Left edge, vertically centered
-  addHandle(HandleType::TiltLeft, leftX, centerY, primaryNote);
+  // 1. Smooth Left: Left edge, vertically centered
+  addHandle(HandleType::SmoothLeft, leftX, centerY, primaryNote);
 
-  // 2. Tilt Right: Right edge, vertically centered
-  addHandle(HandleType::TiltRight, rightX, centerY, primaryNote);
+  // 2. Smooth Right: Right edge, vertically centered
+  addHandle(HandleType::SmoothRight, rightX, centerY, primaryNote);
 
   // 3. Reduce Variance: Top edge, horizontally centered
   addHandle(HandleType::ReduceVariance, centerX, topY, primaryNote);
 
-  // 4. Smooth Left: Top-Left corner
-  addHandle(HandleType::SmoothLeft, leftX, topY, primaryNote);
+  // 4. Tilt Left: Top-Left corner
+  addHandle(HandleType::TiltLeft, leftX, topY, primaryNote);
 
-  // 5. Smooth Right: Top-Right corner
-  addHandle(HandleType::SmoothRight, rightX, topY, primaryNote);
+  // 5. Tilt Right: Top-Right corner
+  addHandle(HandleType::TiltRight, rightX, topY, primaryNote);
 }
 
 void PitchToolHandles::draw(juce::Graphics& g) const {

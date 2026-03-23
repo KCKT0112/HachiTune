@@ -2122,7 +2122,7 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   if (editMode == EditMode::Select && showPitchToolOnMouseMove &&
       e.y >= headerHeight && e.x >= pianoKeysWidth)
   {
-    const float hoverPadding = PitchToolHandles::handleSize * 0.5f;
+    const float hoverPadding = PitchToolHandles::handleSize * 0.9f;
 
     if (hoveredPitchToolNote != nullptr && !hoveredPitchToolNote->isRest())
     {
