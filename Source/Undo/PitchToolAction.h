@@ -57,29 +57,32 @@ private:
         {
             PitchCurveProcessor::rebuildBaseFromNotes(*project);
 
-            if (!notes.empty())
+            const auto dependentNotes =
+                PitchCurveProcessor::collectDependentNotes(*project, notes);
+
+            if (!dependentNotes.empty())
             {
                 int minFrame = std::numeric_limits<int>::max();
                 int maxFrame = std::numeric_limits<int>::min();
-                for (const auto *note : notes)
+                for (const auto *note : dependentNotes)
                 {
                     minFrame = std::min(minFrame, note->getStartFrame());
                     maxFrame = std::max(maxFrame, note->getEndFrame());
                 }
                 project->setF0DirtyRange(minFrame, maxFrame);
             }
-        }
 
-        if (onRangeChanged && !notes.empty())
-        {
-            int minFrame = notes[0]->getStartFrame();
-            int maxFrame = notes[0]->getEndFrame();
-            for (const auto *note : notes)
+            if (onRangeChanged && !dependentNotes.empty())
             {
-                minFrame = std::min(minFrame, note->getStartFrame());
-                maxFrame = std::max(maxFrame, note->getEndFrame());
+                int minFrame = dependentNotes[0]->getStartFrame();
+                int maxFrame = dependentNotes[0]->getEndFrame();
+                for (const auto *note : dependentNotes)
+                {
+                    minFrame = std::min(minFrame, note->getStartFrame());
+                    maxFrame = std::max(maxFrame, note->getEndFrame());
+                }
+                onRangeChanged(minFrame, maxFrame);
             }
-            onRangeChanged(minFrame, maxFrame);
         }
     }
 

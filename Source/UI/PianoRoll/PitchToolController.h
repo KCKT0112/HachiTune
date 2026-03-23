@@ -68,6 +68,8 @@ private:
   Project* project = nullptr;
   bool dragging = false;
   PitchToolHandles::HandleType activeHandleType = PitchToolHandles::HandleType::None;
+  Note* activeHandleNote = nullptr;
+  Note* activeBoundaryPartner = nullptr;
   std::vector<Note*> affectedNotes;
   std::vector<TransformParams> originalParams;
   juce::Point<float> dragStartPos;

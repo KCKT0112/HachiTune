@@ -208,6 +208,11 @@ public:
     showActualF0Debug = show;
     repaint();
   }
+  void setShowIdealSmoothingCurveDebug(bool show)
+  {
+    showIdealSmoothingCurveDebug = show;
+    repaint();
+  }
   bool getShowDeltaPitch() const { return showDeltaPitch; }
   bool getShowBasePitch() const { return showBasePitch; }
 
@@ -311,6 +316,7 @@ private:
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
   bool showActualF0Debug = false;
+  bool showIdealSmoothingCurveDebug = false;
   bool showScaleColors = true;
   bool snapToSemitoneDrag = false;
   int pitchReferenceHz = 440;

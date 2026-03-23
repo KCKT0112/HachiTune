@@ -142,6 +142,10 @@ void SettingsManager::loadConfig()
         if (configObj->hasProperty("showActualF0Debug"))
           showActualF0Debug =
               static_cast<bool>(configObj->getProperty("showActualF0Debug"));
+        if (configObj->hasProperty("showIdealSmoothingCurveDebug"))
+          showIdealSmoothingCurveDebug =
+              static_cast<bool>(
+                  configObj->getProperty("showIdealSmoothingCurveDebug"));
         if (configObj->hasProperty("showPitchToolOnMouseMove"))
           showPitchToolOnMouseMove =
               static_cast<bool>(configObj->getProperty("showPitchToolOnMouseMove"));
@@ -188,6 +192,8 @@ void SettingsManager::saveConfig()
   config->setProperty("showGameValuesDebug", showGameValuesDebug);
   config->setProperty("showUvInterpolationDebug", showUvInterpolationDebug);
   config->setProperty("showActualF0Debug", showActualF0Debug);
+  config->setProperty("showIdealSmoothingCurveDebug",
+                      showIdealSmoothingCurveDebug);
   config->setProperty("showPitchToolOnMouseMove", showPitchToolOnMouseMove);
   config->setProperty("followSystemAudioOutput", followSystemAudioOutput);
   config->setProperty("preferredAudioOutputDevice", preferredAudioOutputDevice);

@@ -1732,6 +1732,59 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
     }
   }
 
+  if (showIdealSmoothingCurveDebug && audioData.sampleRate > 0)
+  {
+    const double visibleStartTime = scrollX / pixelsPerSecond;
+    const double visibleEndTime =
+        (scrollX + getVisibleContentWidth()) / pixelsPerSecond;
+    const int visStartFrame = std::max(
+        0,
+        static_cast<int>(visibleStartTime * audioData.sampleRate / HOP_SIZE));
+    const int visEndFrame = std::min(
+        static_cast<int>(audioData.f0.size()),
+        static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
+
+    g.setColour(juce::Colours::gold.withAlpha(0.92f));
+
+    const auto debugSegments =
+        PitchCurveProcessor::collectIdealSmoothingDebugSegments(*project);
+    for (const auto &segment : debugSegments)
+    {
+      juce::Path debugPath;
+      bool pathStarted = false;
+      int previousFrame = -2;
+
+      for (size_t i = 0; i < segment.frames.size(); ++i)
+      {
+        const int frame = segment.frames[i];
+        if (frame < visStartFrame || frame >= visEndFrame)
+          continue;
+
+        const float midi = segment.idealMidiValues[i] + globalOffset;
+        const float x = framesToSeconds(frame) * pixelsPerSecond;
+        const float y = midiToY(midi) + pixelsPerSemitone * 0.5f;
+
+        if (!pathStarted || frame != previousFrame + 1)
+        {
+          if (pathStarted)
+            g.strokePath(debugPath, juce::PathStrokeType(1.4f));
+          debugPath.clear();
+          debugPath.startNewSubPath(x, y);
+          pathStarted = true;
+        }
+        else
+        {
+          debugPath.lineTo(x, y);
+        }
+
+        previousFrame = frame;
+      }
+
+      if (pathStarted)
+        g.strokePath(debugPath, juce::PathStrokeType(1.4f));
+    }
+  }
+
   if (showActualF0Debug)
   {
     const double visibleStartTime = scrollX / pixelsPerSecond;

@@ -51,6 +51,7 @@ public:
   std::function<void(bool)> onShowGameValuesDebugChanged;
   std::function<void(bool)> onShowUvInterpolationDebugChanged;
   std::function<void(bool)> onShowActualF0DebugChanged;
+  std::function<void(bool)> onShowIdealSmoothingCurveDebugChanged;
   std::function<void(bool)> onShowPitchToolOnMouseMoveChanged;
   std::function<bool()> canChangeDevice;
 
@@ -152,6 +153,8 @@ private:
   juce::ToggleButton uvInterpolationDebugToggle;
   juce::Label actualF0DebugLabel;
   juce::ToggleButton actualF0DebugToggle;
+  juce::Label idealSmoothingCurveDebugLabel;
+  juce::ToggleButton idealSmoothingCurveDebugToggle;
   juce::Label pitchToolMouseMoveLabel;
   juce::ToggleButton pitchToolMouseMoveToggle;
 
@@ -185,6 +188,7 @@ private:
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
   bool showActualF0Debug = false;
+  bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;
   SettingsTab activeTab = SettingsTab::General;
   juce::TextButton generalTabButton;

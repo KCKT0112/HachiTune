@@ -829,12 +829,68 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           owner_.pitchToolHandles->getHandle(hitIndex);
       auto targetNotes = [&]() -> std::vector<Note *>
       {
+        auto findBoundaryPartner = [&](Note* note) -> Note*
+        {
+          if (!note)
+            return nullptr;
+
+          auto& allNotes = project->getNotes();
+          auto it = std::find_if(
+              allNotes.begin(), allNotes.end(),
+              [note](const Note& candidate)
+              {
+                return &candidate == note;
+              });
+          if (it == allNotes.end())
+            return nullptr;
+
+          if (handle.type ==
+              PitchToolHandles::HandleType::SmoothLeft)
+          {
+            auto prevIt = it;
+            while (prevIt != allNotes.begin())
+            {
+              --prevIt;
+              if (!prevIt->isRest())
+                return &*prevIt;
+            }
+            return nullptr;
+          }
+
+          if (handle.type ==
+              PitchToolHandles::HandleType::SmoothRight)
+          {
+            auto nextIt = it;
+            ++nextIt;
+            while (nextIt != allNotes.end())
+            {
+              if (!nextIt->isRest())
+                return &*nextIt;
+              ++nextIt;
+            }
+          }
+
+          return nullptr;
+        };
+
         if (handle.note != nullptr)
+        {
+          if (handle.type ==
+                  PitchToolHandles::HandleType::SmoothLeft ||
+              handle.type ==
+                  PitchToolHandles::HandleType::SmoothRight)
+          {
+            std::vector<Note*> notes{handle.note};
+            if (auto* partner = findBoundaryPartner(handle.note))
+              notes.push_back(partner);
+            return notes;
+          }
           return {handle.note};
+        }
         return project->getSelectedNotes();
       }();
 
-      // SmoothLeft/SmoothRight: Toggle smoothing (moved from mouseMove bug fix)
+      // SmoothLeft/SmoothRight: double-click resets the smoothing range.
       if (handle.type ==
               PitchToolHandles::HandleType::SmoothLeft ||
           handle.type ==
@@ -854,25 +910,54 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
               oldParams.emplace_back();
           }
 
-          // Apply toggle
-          for (auto *note : targetNotes)
+          // Reset the shared boundary smoothing. When the handle belongs to a
+          // concrete note, the opposite side of the adjacent note is kept in
+          // sync so the boundary remains a single shared control.
+          if (handle.note != nullptr &&
+              targetNotes.size() >= 1 &&
+              (handle.type ==
+                   PitchToolHandles::HandleType::SmoothLeft ||
+               handle.type ==
+                   PitchToolHandles::HandleType::SmoothRight))
           {
-            if (!note)
-              continue;
+            handle.note->markDirty();
             if (handle.type ==
                 PitchToolHandles::HandleType::SmoothLeft)
             {
-              int current = note->getSmoothLeftFrames();
-              note->setSmoothLeftFrames(
-                  current != 0 ? 0 : 1);
+              handle.note->setSmoothLeftFrames(0);
+              if (targetNotes.size() > 1 && targetNotes[1] != nullptr)
+              {
+                targetNotes[1]->setSmoothRightFrames(0);
+                targetNotes[1]->markDirty();
+              }
             }
             else
             {
-              int current = note->getSmoothRightFrames();
-              note->setSmoothRightFrames(
-                  current != 0 ? 0 : 1);
+              handle.note->setSmoothRightFrames(0);
+              if (targetNotes.size() > 1 && targetNotes[1] != nullptr)
+              {
+                targetNotes[1]->setSmoothLeftFrames(0);
+                targetNotes[1]->markDirty();
+              }
             }
-            note->markDirty();
+          }
+          else
+          {
+            for (auto *note : targetNotes)
+            {
+              if (!note)
+                continue;
+              if (handle.type ==
+                  PitchToolHandles::HandleType::SmoothLeft)
+              {
+                note->setSmoothLeftFrames(0);
+              }
+              else
+              {
+                note->setSmoothRightFrames(0);
+              }
+              note->markDirty();
+            }
           }
 
           // Capture new params
@@ -899,10 +984,14 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           // Rebuild and update
           PitchCurveProcessor::rebuildBaseFromNotes(*project);
 
+          const auto dependentNotes =
+              PitchCurveProcessor::collectDependentNotes(
+                  *project, targetNotes);
+
           // Mark dirty range
           int minFrame = std::numeric_limits<int>::max();
           int maxFrame = std::numeric_limits<int>::min();
-          for (const auto *note : targetNotes)
+          for (const auto *note : dependentNotes)
           {
             if (note)
             {

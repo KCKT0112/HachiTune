@@ -26,55 +26,324 @@ namespace
             audioData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
     }
 
-    PitchToolOperations::AdjacentNoteContext buildAdjacentContext(
-        const std::vector<Note>& allNotes, const Note& targetNote)
+    std::vector<float> getNoteSourceDelta(const Note& note)
     {
-        PitchToolOperations::AdjacentNoteContext ctx;
+        const auto& rawSourceData = note.hasOriginalDeltaPitch()
+            ? note.getOriginalDeltaPitch()
+            : note.getDeltaPitch();
+        if (rawSourceData.empty())
+            return {};
 
-        const Note* prevNote = nullptr;
-        int prevNoteEndFrame = -1;
-        for (const auto& candidate : allNotes) {
-            if (&candidate == &targetNote || candidate.isRest())
+        const int numFrames = note.getDurationFrames();
+        if (numFrames <= 0)
+            return {};
+
+        if (static_cast<int>(rawSourceData.size()) == numFrames)
+            return rawSourceData;
+
+        return CurveResampler::resampleLinear(rawSourceData, numFrames);
+    }
+
+    float clamp01(float value)
+    {
+        return std::clamp(value, 0.0f, 1.0f);
+    }
+
+    float lerp(float a, float b, float t)
+    {
+        return a + (b - a) * t;
+    }
+
+    float solveQuadraticBezierT(float controlX,
+                                float endX,
+                                float x)
+    {
+        const float a = endX - 2.0f * controlX;
+        const float b = 2.0f * controlX;
+
+        if (std::abs(a) < 1.0e-6f)
+        {
+            if (std::abs(b) < 1.0e-6f)
+                return 0.0f;
+            return clamp01(x / b);
+        }
+
+        const float discriminant = b * b + 4.0f * a * x;
+        if (discriminant <= 0.0f)
+            return 0.0f;
+
+        const float sqrtDiscriminant = std::sqrt(discriminant);
+        const float invDenominator = 0.5f / a;
+        const float t0 = (-b + sqrtDiscriminant) * invDenominator;
+        const float t1 = (-b - sqrtDiscriminant) * invDenominator;
+
+        if (t0 >= 0.0f && t0 <= 1.0f)
+            return t0;
+        if (t1 >= 0.0f && t1 <= 1.0f)
+            return t1;
+        return clamp01(t0);
+    }
+
+    float evaluateQuadraticBezier(float startValue,
+                                  float controlValue,
+                                  float endValue,
+                                  float controlX,
+                                  float endX,
+                                  float x)
+    {
+        const float t = solveQuadraticBezierT(controlX, endX, x);
+        const float oneMinusT = 1.0f - t;
+        return startValue * oneMinusT * oneMinusT +
+               2.0f * controlValue * oneMinusT * t +
+               endValue * t * t;
+    }
+
+    float getNoteCenterMidi(const Note& note)
+    {
+        // Boundary smoothing is defined against the note center line visible
+        // to the user, not the globally smoothed dense base-pitch array.
+        return note.getAdjustedMidiNote();
+    }
+
+    struct BoundarySmoothingSegment
+    {
+        std::vector<int> frames;
+        std::vector<float> idealMidiValues;
+        std::vector<float> weights;
+    };
+
+    std::vector<float> composeRawDeltaFromNotes(const Project& project,
+                                                const std::vector<float>& basePitch,
+                                                int totalFrames)
+    {
+        std::vector<float> denseDelta(static_cast<size_t>(totalFrames), 0.0f);
+
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
                 continue;
-            const int candidateEnd = candidate.getEndFrame();
-            if (candidateEnd <= targetNote.getStartFrame() && candidateEnd > prevNoteEndFrame) {
-                prevNote = &candidate;
-                prevNoteEndFrame = candidateEnd;
-            }
-        }
 
-        const Note* nextNote = nullptr;
-        int nextNoteStartFrame = std::numeric_limits<int>::max();
-        for (const auto& candidate : allNotes) {
-            if (&candidate == &targetNote || candidate.isRest())
+            const int startFrame = note.getStartFrame();
+            const auto sourceData = getNoteSourceDelta(note);
+            const int numFrames = static_cast<int>(sourceData.size());
+            if (numFrames <= 0)
                 continue;
-            const int candidateStart = candidate.getStartFrame();
-            if (candidateStart >= targetNote.getEndFrame() && candidateStart < nextNoteStartFrame) {
-                nextNote = &candidate;
-                nextNoteStartFrame = candidateStart;
+
+            auto transformedDelta = PitchToolOperations::applyAllTransformations(
+                sourceData,
+                note.getTiltLeft(),
+                note.getTiltRight(),
+                note.getVarianceScale());
+
+            const float dScale = note.getDeltaScale();
+            const float dOffset = note.getDeltaOffset();
+            if (std::abs(dScale - 1.0f) > 0.0001f ||
+                std::abs(dOffset) > 0.0001f)
+            {
+                for (auto& value : transformedDelta)
+                    value = value * dScale + dOffset;
+            }
+
+            for (int i = 0; i < numFrames &&
+                            i < static_cast<int>(transformedDelta.size()); ++i)
+            {
+                const int globalFrame = startFrame + i;
+                if (globalFrame >= 0 && globalFrame < totalFrames)
+                {
+                    denseDelta[static_cast<size_t>(globalFrame)] =
+                        transformedDelta[static_cast<size_t>(i)];
+                }
             }
         }
 
-        if (prevNote) {
-            const auto& prevDelta = prevNote->hasOriginalDeltaPitch()
-                ? prevNote->getOriginalDeltaPitch()
-                : prevNote->getDeltaPitch();
-            if (!prevDelta.empty()) {
-                ctx.hasLeft = true;
-                ctx.leftBoundaryDelta = prevDelta.back();
-            }
+        return denseDelta;
+    }
+
+    std::vector<BoundarySmoothingSegment> buildBoundarySmoothingSegments(
+        const Project& project,
+        const std::vector<float>& basePitch)
+    {
+        const int totalFrames = static_cast<int>(basePitch.size());
+        if (totalFrames <= 0)
+        {
+            return {};
         }
-        if (nextNote) {
-            const auto& nextDelta = nextNote->hasOriginalDeltaPitch()
-                ? nextNote->getOriginalDeltaPitch()
-                : nextNote->getDeltaPitch();
-            if (!nextDelta.empty()) {
-                ctx.hasRight = true;
-                ctx.rightBoundaryDelta = nextDelta.front();
+
+        std::vector<const Note*> sortedNotes;
+        sortedNotes.reserve(project.getNotes().size());
+        for (const auto& note : project.getNotes())
+        {
+            if (!note.isRest())
+                sortedNotes.push_back(&note);
+        }
+
+        std::sort(sortedNotes.begin(), sortedNotes.end(),
+                  [](const Note* a, const Note* b)
+                  {
+                      if (a->getStartFrame() != b->getStartFrame())
+                          return a->getStartFrame() < b->getStartFrame();
+                      return a->getEndFrame() < b->getEndFrame();
+                  });
+
+        if (sortedNotes.size() < 2)
+            return {};
+
+        std::vector<BoundarySmoothingSegment> segments;
+
+        for (size_t i = 0; i + 1 < sortedNotes.size(); ++i)
+        {
+            const Note& leftNote = *sortedNotes[i];
+            const Note& rightNote = *sortedNotes[i + 1];
+
+            const int sharedFrames =
+                std::max(leftNote.getSmoothRightFrames(),
+                         rightNote.getSmoothLeftFrames());
+            if (sharedFrames <= 0)
+                continue;
+
+            const int leftExtent =
+                std::min(sharedFrames, leftNote.getDurationFrames());
+            const int rightExtent =
+                std::min(sharedFrames, rightNote.getDurationFrames());
+            if (leftExtent <= 0 || rightExtent <= 0)
+                continue;
+
+            const int leftStartFrame = leftNote.getEndFrame() - leftExtent;
+            const int leftBoundaryFrame = leftNote.getEndFrame() - 1;
+            const int rightBoundaryFrame = rightNote.getStartFrame();
+            const int rightEndFrame =
+                rightNote.getStartFrame() + rightExtent - 1;
+
+            if (leftStartFrame < 0 || rightEndFrame >= totalFrames ||
+                leftBoundaryFrame < 0 || rightBoundaryFrame >= totalFrames)
+            {
+                continue;
+            }
+
+            const int spanFrames = leftExtent + rightExtent;
+            if (spanFrames < 2)
+                continue;
+
+            // The ideal connection should slide on the note center line, so
+            // max smoothing still anchors to the note's own base pitch instead
+            // of inheriting neighboring transition curvature from basePitch.
+            const float leftCenterMidi = getNoteCenterMidi(leftNote);
+            const float rightCenterMidi = getNoteCenterMidi(rightNote);
+            const float startMidi = leftCenterMidi;
+            const float endMidi = rightCenterMidi;
+            const float leftBoundaryMidi = leftCenterMidi;
+            const float rightBoundaryMidi = rightCenterMidi;
+            const float controlMidi =
+                0.5f * (leftBoundaryMidi + rightBoundaryMidi);
+            const float controlX =
+                static_cast<float>(leftExtent) - 0.5f;
+            const float endX =
+                static_cast<float>(spanFrames - 1);
+
+            BoundarySmoothingSegment segment;
+            segment.frames.reserve(static_cast<size_t>(spanFrames));
+            segment.idealMidiValues.reserve(static_cast<size_t>(spanFrames));
+            segment.weights.reserve(static_cast<size_t>(spanFrames));
+
+            for (int localFrame = 0; localFrame < spanFrames; ++localFrame)
+            {
+                const int globalFrame = localFrame < leftExtent
+                    ? leftStartFrame + localFrame
+                    : rightBoundaryFrame + (localFrame - leftExtent);
+                if (globalFrame < 0 || globalFrame >= totalFrames)
+                    continue;
+
+                const float idealMidi = evaluateQuadraticBezier(
+                    startMidi,
+                    controlMidi,
+                    endMidi,
+                    controlX,
+                    endX,
+                    static_cast<float>(localFrame));
+
+                float weight = 0.0f;
+                if (localFrame < leftExtent)
+                {
+                    weight = leftExtent <= 1
+                        ? 1.0f
+                        : static_cast<float>(localFrame) /
+                              static_cast<float>(leftExtent - 1);
+                }
+                else
+                {
+                    const int rightLocal = localFrame - leftExtent;
+                    weight = rightExtent <= 1
+                        ? 1.0f
+                        : 1.0f - static_cast<float>(rightLocal) /
+                                     static_cast<float>(rightExtent - 1);
+                }
+
+                weight = clamp01(weight);
+                if (weight <= 0.0f)
+                    continue;
+
+                segment.frames.push_back(globalFrame);
+                segment.idealMidiValues.push_back(idealMidi);
+                segment.weights.push_back(weight);
+            }
+
+            if (!segment.frames.empty())
+                segments.push_back(std::move(segment));
+        }
+
+        return segments;
+    }
+
+    void applyBoundarySmoothing(Project& project,
+                                const std::vector<float>& rawDelta)
+    {
+        auto& audioData = project.getAudioData();
+        const int totalFrames = audioData.getNumFrames();
+        if (totalFrames <= 0 ||
+            static_cast<int>(rawDelta.size()) != totalFrames)
+        {
+            return;
+        }
+
+        audioData.deltaPitch = rawDelta;
+
+        const auto segments = buildBoundarySmoothingSegments(
+            project, audioData.basePitch);
+        if (segments.empty())
+            return;
+
+        std::vector<float> idealDeltaSum(static_cast<size_t>(totalFrames), 0.0f);
+        std::vector<float> weightSum(static_cast<size_t>(totalFrames), 0.0f);
+
+        for (const auto& segment : segments)
+        {
+            for (size_t i = 0; i < segment.frames.size(); ++i)
+            {
+                const int frame = segment.frames[i];
+                const float idealDelta =
+                    segment.idealMidiValues[i] -
+                    audioData.basePitch[static_cast<size_t>(frame)];
+                const float weight = segment.weights[i];
+                idealDeltaSum[static_cast<size_t>(frame)] +=
+                    idealDelta * weight;
+                weightSum[static_cast<size_t>(frame)] += weight;
             }
         }
 
-        return ctx;
+        for (int frame = 0; frame < totalFrames; ++frame)
+        {
+            const float weight = weightSum[static_cast<size_t>(frame)];
+            if (weight <= 0.0f)
+                continue;
+
+            const float idealDelta =
+                idealDeltaSum[static_cast<size_t>(frame)] / weight;
+            const float blend = std::min(weight, 1.0f);
+            audioData.deltaPitch[static_cast<size_t>(frame)] =
+                lerp(rawDelta[static_cast<size_t>(frame)],
+                     idealDelta,
+                     blend);
+        }
     }
 
     std::vector<BasePitchCurve::NoteSegment> collectNoteSegments(const std::vector<Note>& notes)
@@ -105,6 +374,93 @@ namespace
 
 namespace PitchCurveProcessor
 {
+    std::vector<Note*> collectDependentNotes(Project& project,
+                                             const std::vector<Note*>& seedNotes)
+    {
+        std::vector<Note*> dependentNotes;
+        auto& allNotes = project.getNotes();
+
+        auto addUnique = [&dependentNotes](Note* note)
+        {
+            if (!note || note->isRest())
+                return;
+
+            if (std::find(dependentNotes.begin(), dependentNotes.end(), note) ==
+                dependentNotes.end())
+            {
+                dependentNotes.push_back(note);
+            }
+        };
+
+        for (auto* seedNote : seedNotes)
+        {
+            if (!seedNote || seedNote->isRest())
+                continue;
+
+            addUnique(seedNote);
+
+            auto it = std::find_if(
+                allNotes.begin(), allNotes.end(),
+                [seedNote](const Note& candidate)
+                {
+                    return &candidate == seedNote;
+                });
+            if (it == allNotes.end())
+                continue;
+
+            auto prevIt = it;
+            while (prevIt != allNotes.begin())
+            {
+                --prevIt;
+                if (!prevIt->isRest())
+                {
+                    addUnique(&*prevIt);
+                    break;
+                }
+            }
+
+            auto nextIt = it;
+            ++nextIt;
+            while (nextIt != allNotes.end())
+            {
+                if (!nextIt->isRest())
+                {
+                    addUnique(&*nextIt);
+                    break;
+                }
+                ++nextIt;
+            }
+        }
+
+        return dependentNotes;
+    }
+
+    std::vector<SmoothingDebugSegment> collectIdealSmoothingDebugSegments(
+        const Project& project)
+    {
+        const auto& audioData = project.getAudioData();
+        const int totalFrames = audioData.getNumFrames();
+        if (totalFrames <= 0 ||
+            static_cast<int>(audioData.basePitch.size()) != totalFrames)
+        {
+            return {};
+        }
+
+        const auto segments = buildBoundarySmoothingSegments(
+            project, audioData.basePitch);
+
+        std::vector<SmoothingDebugSegment> debugSegments;
+        debugSegments.reserve(segments.size());
+        for (const auto& segment : segments)
+        {
+            SmoothingDebugSegment debugSegment;
+            debugSegment.frames = segment.frames;
+            debugSegment.idealMidiValues = segment.idealMidiValues;
+            debugSegments.push_back(std::move(debugSegment));
+        }
+        return debugSegments;
+    }
+
     std::vector<float> interpolateWithUvMask(const std::vector<float>& pitchHz,
                                              const std::vector<bool>& uvMask)
     {
@@ -274,70 +630,9 @@ namespace PitchCurveProcessor
             audioData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
         }
 
-        // CRITICAL: Rebuild deltaPitch from Note objects NON-DESTRUCTIVELY
-        // Clear global deltaPitch first
-        audioData.deltaPitch.assign(static_cast<size_t>(totalFrames), 0.0f);
-        
-        // Composite each note's deltaPitch curve (WITH transformations applied) into audioData.deltaPitch
-        const auto& allNotes = project.getNotes();
-        for (const auto& note : allNotes)
-        {
-            if (note.isRest())
-                continue;
-                
-            // Use originalDeltaPitch if available, else fall back to deltaPitch
-            const auto& rawSourceData = note.hasOriginalDeltaPitch() ? note.getOriginalDeltaPitch() : note.getDeltaPitch();
-            if (rawSourceData.empty())
-                continue;
-
-            const int startFrame = note.getStartFrame();
-            const int endFrame = note.getEndFrame();
-            const int numFrames = endFrame - startFrame;
-            if (numFrames <= 0)
-                continue;
-
-            // If the note has been time-stretched, resample its stored delta
-            // to match the current output frame count so the pitch shape scales
-            // together with the note duration.
-            std::vector<float> resampledBuf;
-            const std::vector<float>* sourceDataPtr = &rawSourceData;
-            if (static_cast<int>(rawSourceData.size()) != numFrames)
-            {
-                resampledBuf = CurveResampler::resampleLinear(rawSourceData, numFrames);
-                sourceDataPtr = &resampledBuf;
-            }
-            const auto& sourceData = *sourceDataPtr;
-            
-            // Build adjacent note context
-            auto adjacentContext = buildAdjacentContext(allNotes, note);
-            
-            // Apply all transformation parameters NON-DESTRUCTIVELY
-            std::vector<float> transformedDelta = PitchToolOperations::applyAllTransformations(
-                sourceData,
-                note.getTiltLeft(),
-                note.getTiltRight(),
-                note.getVarianceScale(),
-                note.getSmoothLeftFrames(),
-                note.getSmoothRightFrames(),
-                adjacentContext
-            );
-
-            // Apply per-note delta scale/offset (from delta control handles)
-            const float dScale = note.getDeltaScale();
-            const float dOffset = note.getDeltaOffset();
-            if (std::abs(dScale - 1.0f) > 0.0001f || std::abs(dOffset) > 0.0001f)
-            {
-                for (auto& v : transformedDelta)
-                    v = v * dScale + dOffset;
-            }
-            
-            for (int i = 0; i < numFrames && i < static_cast<int>(transformedDelta.size()); ++i)
-            {
-                const int globalIdx = startFrame + i;
-                if (globalIdx >= 0 && globalIdx < totalFrames)
-                    audioData.deltaPitch[static_cast<size_t>(globalIdx)] = transformedDelta[static_cast<size_t>(i)];
-            }
-        }
+        const auto rawDelta = composeRawDeltaFromNotes(
+            project, audioData.basePitch, totalFrames);
+        applyBoundarySmoothing(project, rawDelta);
 
         // Update cached baseF0
         audioData.baseF0.resize(static_cast<size_t>(totalFrames));
@@ -349,190 +644,14 @@ namespace PitchCurveProcessor
 
     void rebuildBaseFromNotesForDrag(Project& project, const std::vector<Note*>& affectedNotes)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        ensureSizes(audioData, totalFrames);
-
-        // 1. Regenerate basePitch from ALL notes (needed for correct pitch display)
-        auto segments = collectNoteSegments(project.getNotes());
-        if (!segments.empty())
-        {
-            audioData.basePitch = BasePitchCurve::generateForNotes(segments, totalFrames);
-        }
-
-        if (audioData.basePitch.size() != static_cast<size_t>(totalFrames))
-        {
-            audioData.basePitch.assign(static_cast<size_t>(totalFrames), 0.0f);
-        }
-
-        // 2. Only rebuild deltaPitch for the affected notes (not all notes)
-        //    First, zero the affected range in the global deltaPitch array
-        int minFrame = totalFrames;
-        int maxFrame = 0;
-        for (auto* note : affectedNotes)
-        {
-            if (!note || note->isRest())
-                continue;
-            minFrame = std::min(minFrame, note->getStartFrame());
-            maxFrame = std::max(maxFrame, note->getEndFrame());
-        }
-        minFrame = std::max(0, minFrame);
-        maxFrame = std::min(totalFrames, maxFrame);
-        for (int i = minFrame; i < maxFrame; ++i)
-            audioData.deltaPitch[static_cast<size_t>(i)] = 0.0f;
-
-        const auto& allNotes = project.getNotes();
-        for (auto* note : affectedNotes)
-        {
-            if (!note || note->isRest())
-                continue;
-
-            const auto& rawSourceData = note->hasOriginalDeltaPitch() ? note->getOriginalDeltaPitch() : note->getDeltaPitch();
-            if (rawSourceData.empty())
-                continue;
-
-            const int startFrame = note->getStartFrame();
-            const int endFrame = note->getEndFrame();
-            const int numFrames = endFrame - startFrame;
-            if (numFrames <= 0)
-                continue;
-
-            std::vector<float> resampledBuf;
-            const std::vector<float>* sourceDataPtr = &rawSourceData;
-            if (static_cast<int>(rawSourceData.size()) != numFrames)
-            {
-                resampledBuf = CurveResampler::resampleLinear(rawSourceData, numFrames);
-                sourceDataPtr = &resampledBuf;
-            }
-            const auto& sourceData = *sourceDataPtr;
-
-            auto adjacentContext = buildAdjacentContext(allNotes, *note);
-
-            std::vector<float> transformedDelta = PitchToolOperations::applyAllTransformations(
-                sourceData,
-                note->getTiltLeft(),
-                note->getTiltRight(),
-                note->getVarianceScale(),
-                note->getSmoothLeftFrames(),
-                note->getSmoothRightFrames(),
-                adjacentContext
-            );
-
-            const float dScale = note->getDeltaScale();
-            const float dOffset = note->getDeltaOffset();
-            if (std::abs(dScale - 1.0f) > 0.0001f || std::abs(dOffset) > 0.0001f)
-            {
-                for (auto& v : transformedDelta)
-                    v = v * dScale + dOffset;
-            }
-
-            for (int i = 0; i < numFrames && i < static_cast<int>(transformedDelta.size()); ++i)
-            {
-                const int globalIdx = startFrame + i;
-                if (globalIdx >= 0 && globalIdx < totalFrames)
-                    audioData.deltaPitch[static_cast<size_t>(globalIdx)] = transformedDelta[static_cast<size_t>(i)];
-            }
-        }
-
-        // 3. Update baseF0 only for the affected range
-        audioData.baseF0.resize(static_cast<size_t>(totalFrames));
-        for (int i = minFrame; i < maxFrame; ++i)
-            audioData.baseF0[static_cast<size_t>(i)] = midiToFreq(audioData.basePitch[static_cast<size_t>(i)]);
-
-        // 4. Recompose f0 only for the affected range (with padding for smoothing)
-        const int f0Start = std::max(0, minFrame - 60);
-        const int f0End = std::min(totalFrames, maxFrame + 60);
-        for (int i = f0Start; i < f0End; ++i)
-        {
-            const float base = audioData.basePitch[static_cast<size_t>(i)];
-            const float delta = audioData.deltaPitch[static_cast<size_t>(i)];
-            audioData.f0[static_cast<size_t>(i)] = midiToFreq(base + delta);
-        }
+        (void) affectedNotes;
+        rebuildBaseFromNotes(project);
     }
 
     void rebuildDeltaForNotes(Project& project, const std::vector<Note*>& affectedNotes)
     {
-        auto& audioData = project.getAudioData();
-        const int totalFrames = audioData.getNumFrames();
-        if (totalFrames <= 0 || affectedNotes.empty())
-            return;
-
-        const auto& allNotes = project.getNotes();
-        int minAffectedFrame = totalFrames;
-        int maxAffectedFrame = 0;
-
-        for (auto* note : affectedNotes)
-        {
-            if (!note || note->isRest())
-                continue;
-
-            const auto& rawSourceData = note->hasOriginalDeltaPitch()
-                ? note->getOriginalDeltaPitch() : note->getDeltaPitch();
-            if (rawSourceData.empty())
-                continue;
-
-            const int startFrame = note->getStartFrame();
-            const int endFrame = note->getEndFrame();
-            const int numFrames = endFrame - startFrame;
-            if (numFrames <= 0)
-                continue;
-
-            // If the note has been time-stretched, resample its stored delta
-            // to match the current output frame count.
-            std::vector<float> resampledBuf;
-            const std::vector<float>* sourceDataPtr = &rawSourceData;
-            if (static_cast<int>(rawSourceData.size()) != numFrames)
-            {
-                resampledBuf = CurveResampler::resampleLinear(rawSourceData, numFrames);
-                sourceDataPtr = &resampledBuf;
-            }
-            const auto& sourceData = *sourceDataPtr;
-
-            // Build adjacent note context
-            auto adjacentContext = buildAdjacentContext(allNotes, *note);
-
-            std::vector<float> transformedDelta = PitchToolOperations::applyAllTransformations(
-                sourceData,
-                note->getTiltLeft(),
-                note->getTiltRight(),
-                note->getVarianceScale(),
-                note->getSmoothLeftFrames(),
-                note->getSmoothRightFrames(),
-                adjacentContext
-            );
-
-            // Apply per-note delta scale/offset
-            const float dScale = note->getDeltaScale();
-            const float dOffset = note->getDeltaOffset();
-            if (std::abs(dScale - 1.0f) > 0.0001f || std::abs(dOffset) > 0.0001f)
-            {
-                for (auto& v : transformedDelta)
-                    v = v * dScale + dOffset;
-            }
-
-            minAffectedFrame = std::min(minAffectedFrame, startFrame);
-            maxAffectedFrame = std::max(maxAffectedFrame, endFrame);
-
-            for (int i = 0; i < numFrames && i < static_cast<int>(transformedDelta.size()); ++i)
-            {
-                const int globalIdx = startFrame + i;
-                if (globalIdx >= 0 && globalIdx < totalFrames)
-                    audioData.deltaPitch[static_cast<size_t>(globalIdx)] = transformedDelta[static_cast<size_t>(i)];
-            }
-        }
-
-        // Recompose f0 only for affected range
-        if (minAffectedFrame < maxAffectedFrame)
-        {
-            const int rangeStart = std::max(0, minAffectedFrame);
-            const int rangeEnd = std::min(totalFrames, maxAffectedFrame);
-            for (int i = rangeStart; i < rangeEnd; ++i)
-            {
-                const float base = audioData.basePitch[static_cast<size_t>(i)];
-                const float delta = audioData.deltaPitch[static_cast<size_t>(i)];
-                audioData.f0[static_cast<size_t>(i)] = midiToFreq(base + delta);
-            }
-        }
+        (void) affectedNotes;
+        rebuildBaseFromNotes(project);
     }
 
     std::vector<float> composeF0(const Project& project,

@@ -79,6 +79,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
       settingsManager->getShowUvInterpolationDebug());
   pianoRoll.setShowActualF0Debug(
       settingsManager->getShowActualF0Debug());
+  pianoRoll.setShowIdealSmoothingCurveDebug(
+      settingsManager->getShowIdealSmoothingCurveDebug());
   pianoRoll.setShowPitchToolOnMouseMove(
       settingsManager->getShowPitchToolOnMouseMove());
   pianoRollView.setShowSegmentsDebug(
@@ -1445,6 +1447,18 @@ void MainComponent::showSettings()
         settingsManager->saveConfig();
       }
       pianoRoll.setShowActualF0Debug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()
+        ->onShowIdealSmoothingCurveDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowIdealSmoothingCurveDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowIdealSmoothingCurveDebug(show);
       pianoRoll.repaint();
     };
     settingsOverlay->getSettingsComponent()->onShowPitchToolOnMouseMoveChanged =
