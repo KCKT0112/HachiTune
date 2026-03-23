@@ -51,6 +51,7 @@ public:
   std::function<void(bool)> onShowGameValuesDebugChanged;
   std::function<void(bool)> onShowUvInterpolationDebugChanged;
   std::function<void(bool)> onShowActualF0DebugChanged;
+  std::function<void(bool)> onShowPitchToolOnMouseMoveChanged;
   std::function<bool()> canChangeDevice;
 
   // Load/save settings
@@ -151,6 +152,8 @@ private:
   juce::ToggleButton uvInterpolationDebugToggle;
   juce::Label actualF0DebugLabel;
   juce::ToggleButton actualF0DebugToggle;
+  juce::Label pitchToolMouseMoveLabel;
+  juce::ToggleButton pitchToolMouseMoveToggle;
 
   juce::Label infoLabel;
 
@@ -182,6 +185,7 @@ private:
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
   bool showActualF0Debug = false;
+  bool showPitchToolOnMouseMove = true;
   SettingsTab activeTab = SettingsTab::General;
   juce::TextButton generalTabButton;
   juce::TextButton audioTabButton;

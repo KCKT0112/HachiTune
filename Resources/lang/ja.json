@@ -88,6 +88,7 @@
   "settings.buffer_size": "バッファサイズ:",
   "settings.output_channels": "チャンネル:",
   "settings.pitch_detector": "ピッチ検出器:",
+  "settings.show_pitch_tool_mouse_move": "マウス移動でノートツールを表示",
   "settings.mono": "モノラル",
   "settings.stereo": "ステレオ",
   "settings.default_gpu": "デフォルトGPU",

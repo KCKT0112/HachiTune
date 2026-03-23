@@ -1394,9 +1394,19 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
       }
     }
 
-    if (drawOverlays && note.isSelected())
+    if (drawOverlays &&
+        (note.isSelected() || (&note == hoveredPitchToolNote)))
     {
-      drawSelectedNoteOutline(x, y, renderedWidth, h);
+      if (note.isSelected())
+      {
+        drawSelectedNoteOutline(x, y, renderedWidth, h);
+      }
+      else
+      {
+        g.setColour(APP_COLOR_PRIMARY.withAlpha(0.7f));
+        g.drawRoundedRectangle(x - 2.0f, y - 2.0f, renderedWidth + 4.0f, h + 4.0f,
+                               3.5f, 1.25f);
+      }
 
       const auto handleBounds =
           getDeltaScaleHandleBounds(x, y, renderedWidth, h);
@@ -2118,11 +2128,28 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   if (currentHandler_)
     currentHandler_->mouseMove(e, adjustedX, adjustedY);
 
-  // Pitch tool handle hover (uses raw event coordinates, not world-adjusted)
+  Note *newHoveredToolNote = nullptr;
+  if (editMode == EditMode::Select && showPitchToolOnMouseMove &&
+      e.y >= headerHeight && e.x >= pianoKeysWidth)
+  {
+    newHoveredToolNote = findNoteAtX(adjustedX);
+    if (newHoveredToolNote != nullptr && newHoveredToolNote->isRest())
+      newHoveredToolNote = nullptr;
+  }
+
+  const bool hoveredToolNoteChanged = newHoveredToolNote != hoveredPitchToolNote;
+  if (hoveredToolNoteChanged)
+  {
+    hoveredPitchToolNote = newHoveredToolNote;
+    updatePitchToolHandlesFromSelection();
+  }
+
+  // Pitch tool handle hover uses world-adjusted coordinates because the
+  // handle model is stored in the same musical coordinate space as notes.
   if (editMode == EditMode::Select && pitchToolHandles && !pitchToolHandles->isEmpty() &&
       e.y >= headerHeight && e.x >= pianoKeysWidth)
   {
-    int hitIndex = pitchToolHandles->hitTest(e.position.x, e.position.y);
+    int hitIndex = pitchToolHandles->hitTest(adjustedX, adjustedY);
     if (hitIndex != hoveredPitchToolHandle)
     {
       hoveredPitchToolHandle = hitIndex;
@@ -2137,6 +2164,30 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
       pitchToolHandles->setHoveredHandleIndex(-1);
     repaint();
   }
+}
+
+void PianoRollComponent::mouseExit(const juce::MouseEvent &e)
+{
+  juce::ignoreUnused(e);
+
+  bool needsRepaint = false;
+  if (hoveredPitchToolHandle != -1)
+  {
+    hoveredPitchToolHandle = -1;
+    if (pitchToolHandles)
+      pitchToolHandles->setHoveredHandleIndex(-1);
+    needsRepaint = true;
+  }
+
+  if (hoveredPitchToolNote != nullptr)
+  {
+    hoveredPitchToolNote = nullptr;
+    updatePitchToolHandlesFromSelection();
+    needsRepaint = true;
+  }
+
+  if (needsRepaint)
+    repaint();
 }
 
 void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e)
@@ -2935,12 +2986,32 @@ void PianoRollComponent::updatePitchToolHandlesFromSelection()
   if (!project || editMode != EditMode::Select)
   {
     pitchToolHandles->clear();
+    hoveredPitchToolNote = nullptr;
     hoveredPitchToolHandle = -1;
     pitchToolHandles->setHoveredHandleIndex(-1);
     return;
   }
 
-  pitchToolHandles->updateHandles(getSelectedNotes(), *coordMapper);
+  auto targetNotes = getSelectedNotes();
+  std::vector<Note *> hoverNotes;
+  if (showPitchToolOnMouseMove && hoveredPitchToolNote != nullptr &&
+      std::find(targetNotes.begin(), targetNotes.end(), hoveredPitchToolNote) ==
+          targetNotes.end())
+  {
+    hoverNotes.push_back(hoveredPitchToolNote);
+  }
+
+  if (targetNotes.empty() && hoverNotes.empty())
+  {
+    pitchToolHandles->clear();
+    hoveredPitchToolHandle = -1;
+    pitchToolHandles->setHoveredHandleIndex(-1);
+    return;
+  }
+
+  pitchToolHandles->updateHandles(targetNotes, *coordMapper, false);
+  if (!hoverNotes.empty())
+    pitchToolHandles->updateHandles(hoverNotes, *coordMapper, true);
   if (hoveredPitchToolHandle >=
       static_cast<int>(pitchToolHandles->getHandles().size()))
   {
@@ -2972,6 +3043,42 @@ Note *PianoRollComponent::findNoteAt(float x, float y)
   }
 
   return nullptr;
+}
+
+Note *PianoRollComponent::findNoteAtX(float x) const
+{
+  if (!project)
+    return nullptr;
+
+  Note *bestNote = nullptr;
+  float bestDistance = std::numeric_limits<float>::max();
+
+  for (auto &note : project->getNotes())
+  {
+    if (note.isRest())
+      continue;
+
+    const float noteX =
+        framesToSeconds(note.getStartFrame()) * pixelsPerSecond;
+    const float noteW = std::max(
+        framesToSeconds(note.getDurationFrames()) * pixelsPerSecond, 4.0f);
+    const float noteEndX = noteX + noteW;
+    if (x < noteX || x >= noteEndX)
+      continue;
+
+    const float noteCenterY =
+        midiToY(note.getAdjustedMidiNote()) + pixelsPerSemitone * 0.5f;
+    const float viewCenterY =
+        static_cast<float>(scrollY) + static_cast<float>(getVisibleContentHeight()) * 0.5f;
+    const float distance = std::abs(noteCenterY - viewCenterY);
+    if (distance < bestDistance)
+    {
+      bestDistance = distance;
+      bestNote = &note;
+    }
+  }
+
+  return bestNote;
 }
 
 void PianoRollComponent::updateScrollBars()

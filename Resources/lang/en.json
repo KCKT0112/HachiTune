@@ -88,6 +88,7 @@
   "settings.buffer_size": "Buffer Size:",
   "settings.output_channels": "Channels:",
   "settings.pitch_detector": "Pitch Detector:",
+  "settings.show_pitch_tool_mouse_move": "Show note tools on mouse move",
   "settings.mono": "Mono",
   "settings.stereo": "Stereo",
   "settings.default_gpu": "Default GPU",

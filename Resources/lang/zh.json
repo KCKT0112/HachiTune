@@ -88,6 +88,7 @@
   "settings.buffer_size": "缓冲区大小:",
   "settings.output_channels": "声道:",
   "settings.pitch_detector": "音高检测器:",
+  "settings.show_pitch_tool_mouse_move": "鼠标移动时显示音符工具",
   "settings.mono": "单声道",
   "settings.stereo": "立体声",
   "settings.default_gpu": "默认 GPU",

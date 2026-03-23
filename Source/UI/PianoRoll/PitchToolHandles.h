@@ -33,7 +33,8 @@ public:
    * Call this when selection changes or viewport moves.
    */
   void updateHandles(const std::vector<Note*>& selectedNotes,
-                     const CoordinateMapper& mapper);
+                     const CoordinateMapper& mapper,
+                     bool append = false);
 
   /**
    * Draw all handles to graphics context.
@@ -79,7 +80,7 @@ private:
   std::vector<Handle> handles;
   int hoveredHandleIndex = -1;
 
-  static constexpr float HANDLE_SIZE = 10.0f;
+  static constexpr float HANDLE_SIZE = 11.0f;
 
   void addHandle(HandleType type, float worldX, float worldY, Note* note = nullptr);
   juce::Colour getColorForType(HandleType type) const;

@@ -83,6 +83,7 @@ public:
   void mouseDrag(const juce::MouseEvent &e) override;
   void mouseUp(const juce::MouseEvent &e) override;
   void mouseMove(const juce::MouseEvent &e) override;
+  void mouseExit(const juce::MouseEvent &e) override;
   void mouseDoubleClick(const juce::MouseEvent &e) override;
   void mouseWheelMove(const juce::MouseEvent &e,
                       const juce::MouseWheelDetails &wheel) override;
@@ -119,6 +120,14 @@ public:
   void setPixelsPerSemitone(float pps, float anchorContentY = -1.0f);
   float getPixelsPerSecond() const { return pixelsPerSecond; }
   float getPixelsPerSemitone() const { return pixelsPerSemitone; }
+  void setShowPitchToolOnMouseMove(bool show)
+  {
+    if (showPitchToolOnMouseMove == show)
+      return;
+    showPitchToolOnMouseMove = show;
+    updatePitchToolHandlesFromSelection();
+    repaint();
+  }
 
   // Scale-grid visualization
   void setScaleMode(ScaleMode mode);
@@ -241,6 +250,7 @@ private:
   void drawStretchGuides(juce::Graphics &g);
 #endif
   void updatePitchToolHandlesFromSelection();
+  Note *findNoteAtX(float x) const;
 
   float midiToY(float midiNote) const;
   float yToMidi(float y) const;
@@ -273,6 +283,8 @@ private:
   std::unique_ptr<PitchToolHandles> pitchToolHandles;
   std::unique_ptr<PitchToolController> pitchToolController;
   int hoveredPitchToolHandle = -1;
+  Note *hoveredPitchToolNote = nullptr;
+  bool showPitchToolOnMouseMove = true;
 
   float pixelsPerSecond = DEFAULT_PIXELS_PER_SECOND;
   float pixelsPerSemitone = DEFAULT_PIXELS_PER_SEMITONE;

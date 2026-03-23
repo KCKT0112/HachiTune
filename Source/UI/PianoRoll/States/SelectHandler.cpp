@@ -818,8 +818,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
     return;
 
   // Check if double-clicking on a pitch tool handle
-  if (owner_.pitchToolHandles &&
-      !project->getSelectedNotes().empty())
+  if (owner_.pitchToolHandles && !owner_.pitchToolHandles->isEmpty())
   {
     int hitIndex =
         owner_.pitchToolHandles->hitTest(worldX, worldY);
@@ -827,6 +826,12 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
     {
       const auto &handle =
           owner_.pitchToolHandles->getHandle(hitIndex);
+      auto targetNotes = [&]() -> std::vector<Note *>
+      {
+        if (handle.note != nullptr)
+          return {handle.note};
+        return project->getSelectedNotes();
+      }();
 
       // SmoothLeft/SmoothRight: Toggle smoothing (moved from mouseMove bug fix)
       if (handle.type ==
@@ -834,14 +839,13 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           handle.type ==
               PitchToolHandles::HandleType::SmoothRight)
       {
-        auto selectedNotes = project->getSelectedNotes();
-        if (!selectedNotes.empty())
+        if (!targetNotes.empty())
         {
 
           // Capture old params
           std::vector<TransformParams> oldParams;
-          oldParams.reserve(selectedNotes.size());
-          for (auto *note : selectedNotes)
+          oldParams.reserve(targetNotes.size());
+          for (auto *note : targetNotes)
           {
             if (note)
               oldParams.push_back(TransformParams::fromNote(*note));
@@ -850,7 +854,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           }
 
           // Apply toggle
-          for (auto *note : selectedNotes)
+          for (auto *note : targetNotes)
           {
             if (!note)
               continue;
@@ -872,8 +876,8 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
 
           // Capture new params
           std::vector<TransformParams> newParams;
-          newParams.reserve(selectedNotes.size());
-          for (auto *note : selectedNotes)
+          newParams.reserve(targetNotes.size());
+          for (auto *note : targetNotes)
           {
             if (note)
               newParams.push_back(TransformParams::fromNote(*note));
@@ -885,7 +889,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           if (owner_.undoManager)
           {
             auto action = std::make_unique<PitchToolAction>(
-                project, selectedNotes, oldParams, newParams,
+                project, targetNotes, oldParams, newParams,
                 [this](int, int)
                 { rebuildAndNotify(); });
             owner_.undoManager->addAction(std::move(action));
@@ -897,7 +901,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           // Mark dirty range
           int minFrame = std::numeric_limits<int>::max();
           int maxFrame = std::numeric_limits<int>::min();
-          for (const auto *note : selectedNotes)
+          for (const auto *note : targetNotes)
           {
             if (note)
             {
@@ -924,7 +928,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::ReduceVariance)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         float currentScale =
             selectedNotes[0]->getVarianceScale();
@@ -972,7 +978,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::TiltLeft)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         if (owner_.undoManager)
         {
@@ -1024,7 +1032,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::TiltRight)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         if (owner_.undoManager)
         {

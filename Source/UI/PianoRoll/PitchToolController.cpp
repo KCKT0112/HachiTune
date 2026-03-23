@@ -19,14 +19,19 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
   const int hitIndex = handles.hitTest(e.position.x, e.position.y);
   
   
-  if (hitIndex < 0 || selectedNotes.empty()) {
+  if (hitIndex < 0) {
     return false;
   }
 
-  activeHandleType = handles.getHandle(hitIndex).type;
+  const auto& handle = handles.getHandle(hitIndex);
+  activeHandleType = handle.type;
   
-  
-  affectedNotes = selectedNotes;
+  if (handle.note != nullptr)
+    affectedNotes = {handle.note};
+  else if (!selectedNotes.empty())
+    affectedNotes = selectedNotes;
+  else
+    return false;
   
   // Capture original transformation parameters (not curves)
   originalParams.clear();

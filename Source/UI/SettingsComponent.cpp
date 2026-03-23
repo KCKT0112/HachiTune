@@ -257,6 +257,26 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(actualF0DebugToggle);
 
+  pitchToolMouseMoveLabel.setText(TR("settings.show_pitch_tool_mouse_move"),
+                                  juce::dontSendNotification);
+  configureRowLabel(pitchToolMouseMoveLabel);
+  addAndMakeVisible(pitchToolMouseMoveLabel);
+
+  pitchToolMouseMoveToggle.setButtonText("");
+  pitchToolMouseMoveToggle.setClickingTogglesState(true);
+  pitchToolMouseMoveToggle.onClick = [this]()
+  {
+    showPitchToolOnMouseMove = pitchToolMouseMoveToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowPitchToolOnMouseMove(showPitchToolOnMouseMove);
+      settingsManager->saveConfig();
+    }
+    if (onShowPitchToolOnMouseMoveChanged)
+      onShowPitchToolOnMouseMoveChanged(showPitchToolOnMouseMove);
+  };
+  addAndMakeVisible(pitchToolMouseMoveToggle);
+
   // Info label
   infoLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_MUTED);
   infoLabel.setFont(AppFont::getFont(15.0f));
@@ -360,6 +380,7 @@ SettingsComponent::~SettingsComponent()
   gameValuesDebugToggle.setLookAndFeel(nullptr);
   uvInterpolationDebugToggle.setLookAndFeel(nullptr);
   actualF0DebugToggle.setLookAndFeel(nullptr);
+  pitchToolMouseMoveToggle.setLookAndFeel(nullptr);
 }
 
 void SettingsComponent::changeListenerCallback(
@@ -495,6 +516,7 @@ void SettingsComponent::resized()
     layoutRow(gameValuesDebugLabel, gameValuesDebugToggle);
     layoutRow(uvInterpolationDebugLabel, uvInterpolationDebugToggle);
     layoutRow(actualF0DebugLabel, actualF0DebugToggle);
+    layoutRow(pitchToolMouseMoveLabel, pitchToolMouseMoveToggle);
 
     infoLabel.setBounds(content.removeFromTop(56));
     content.removeFromTop(12);
@@ -1078,6 +1100,7 @@ void SettingsComponent::loadSettings()
     showGameValuesDebug = settingsManager->getShowGameValuesDebug();
     showUvInterpolationDebug = settingsManager->getShowUvInterpolationDebug();
     showActualF0Debug = settingsManager->getShowActualF0Debug();
+    showPitchToolOnMouseMove = settingsManager->getShowPitchToolOnMouseMove();
 
     auto langCode = settingsManager->getLanguage();
     if (langCode == "auto")
@@ -1135,6 +1158,8 @@ void SettingsComponent::loadSettings()
                                             juce::dontSendNotification);
   actualF0DebugToggle.setToggleState(showActualF0Debug,
                                      juce::dontSendNotification);
+  pitchToolMouseMoveToggle.setToggleState(showPitchToolOnMouseMove,
+                                          juce::dontSendNotification);
 
   hasLoadedSettings = true;
   lastConfirmedDevice = currentDevice;
@@ -1171,6 +1196,7 @@ void SettingsComponent::saveSettings()
     settingsManager->setShowGameValuesDebug(showGameValuesDebug);
     settingsManager->setShowUvInterpolationDebug(showUvInterpolationDebug);
     settingsManager->setShowActualF0Debug(showActualF0Debug);
+    settingsManager->setShowPitchToolOnMouseMove(showPitchToolOnMouseMove);
     settingsManager->setFollowSystemAudioOutput(followSystemAudioOutput);
     settingsManager->setPreferredAudioOutputDevice(preferredAudioOutputDevice);
     settingsManager->saveConfig();
