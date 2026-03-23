@@ -54,48 +54,60 @@ namespace
         return a + (b - a) * t;
     }
 
-    float solveQuadraticBezierT(float controlX,
+    float evaluateCubicBezier1D(float p0,
+                                float p1,
+                                float p2,
+                                float p3,
+                                float t)
+    {
+        const float oneMinusT = 1.0f - t;
+        return p0 * oneMinusT * oneMinusT * oneMinusT +
+               3.0f * p1 * oneMinusT * oneMinusT * t +
+               3.0f * p2 * oneMinusT * t * t +
+               p3 * t * t * t;
+    }
+
+    float solveCubicBezierTForX(float controlX1,
+                                float controlX2,
                                 float endX,
                                 float x)
     {
-        const float a = endX - 2.0f * controlX;
-        const float b = 2.0f * controlX;
-
-        if (std::abs(a) < 1.0e-6f)
-        {
-            if (std::abs(b) < 1.0e-6f)
-                return 0.0f;
-            return clamp01(x / b);
-        }
-
-        const float discriminant = b * b + 4.0f * a * x;
-        if (discriminant <= 0.0f)
+        if (endX <= 0.0f)
             return 0.0f;
 
-        const float sqrtDiscriminant = std::sqrt(discriminant);
-        const float invDenominator = 0.5f / a;
-        const float t0 = (-b + sqrtDiscriminant) * invDenominator;
-        const float t1 = (-b - sqrtDiscriminant) * invDenominator;
+        const float clampedX = juce::jlimit(0.0f, endX, x);
+        float lower = 0.0f;
+        float upper = 1.0f;
 
-        if (t0 >= 0.0f && t0 <= 1.0f)
-            return t0;
-        if (t1 >= 0.0f && t1 <= 1.0f)
-            return t1;
-        return clamp01(t0);
+        for (int i = 0; i < 18; ++i)
+        {
+            const float mid = 0.5f * (lower + upper);
+            const float midX = evaluateCubicBezier1D(
+                0.0f, controlX1, controlX2, endX, mid);
+            if (midX < clampedX)
+                lower = mid;
+            else
+                upper = mid;
+        }
+
+        return 0.5f * (lower + upper);
     }
 
-    float evaluateQuadraticBezier(float startValue,
-                                  float controlValue,
-                                  float endValue,
-                                  float controlX,
-                                  float endX,
-                                  float x)
+    float evaluateBoundaryEaseBezier(float startValue,
+                                     float endValue,
+                                     float boundaryX,
+                                     float endX,
+                                     float x)
     {
-        const float t = solveQuadraticBezierT(controlX, endX, x);
-        const float oneMinusT = 1.0f - t;
-        return startValue * oneMinusT * oneMinusT +
-               2.0f * controlValue * oneMinusT * t +
-               endValue * t * t;
+        const float clampedBoundaryX = juce::jlimit(0.0f, endX, boundaryX);
+        const float t = solveCubicBezierTForX(
+            clampedBoundaryX, clampedBoundaryX, endX, x);
+
+        // Using repeated start/end Y control points gives a zero-slope ease
+        // at both note-side anchors, which is closer to Melodyne's smoothing
+        // shape than a simple quadratic fall.
+        return evaluateCubicBezier1D(
+            startValue, startValue, endValue, endValue, t);
     }
 
     float getNoteCenterMidi(const Note& note)
@@ -231,10 +243,6 @@ namespace
             const float rightCenterMidi = getNoteCenterMidi(rightNote);
             const float startMidi = leftCenterMidi;
             const float endMidi = rightCenterMidi;
-            const float leftBoundaryMidi = leftCenterMidi;
-            const float rightBoundaryMidi = rightCenterMidi;
-            const float controlMidi =
-                0.5f * (leftBoundaryMidi + rightBoundaryMidi);
             const float controlX =
                 static_cast<float>(leftExtent) - 0.5f;
             const float endX =
@@ -253,9 +261,8 @@ namespace
                 if (globalFrame < 0 || globalFrame >= totalFrames)
                     continue;
 
-                const float idealMidi = evaluateQuadraticBezier(
+                const float idealMidi = evaluateBoundaryEaseBezier(
                     startMidi,
-                    controlMidi,
                     endMidi,
                     controlX,
                     endX,

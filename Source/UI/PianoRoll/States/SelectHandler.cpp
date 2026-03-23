@@ -8,6 +8,87 @@
 
 #include <unordered_set>
 
+namespace {
+
+bool usesBoundarySmoothingPreview(Project& project,
+                                  const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  for (const auto* note : dependentNotes) {
+    if (note != nullptr &&
+        (note->getSmoothLeftFrames() > 0 ||
+         note->getSmoothRightFrames() > 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void rebuildBoundarySmoothingPreview(Project& project,
+                                     const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  PitchCurveProcessor::rebuildBaseFromNotesForDrag(project, dependentNotes);
+}
+
+struct BoundaryResetOperation {
+  Note* editedNote = nullptr;
+  Note* partnerNote = nullptr;
+  bool editLeftSide = false;
+};
+
+std::vector<BoundaryResetOperation> collectSelectedBoundaryResetOperations(
+    Project& project,
+    const std::vector<Note*>& selectedNotes,
+    PitchToolHandles::HandleType handleType) {
+  if (selectedNotes.size() < 2) {
+    return {};
+  }
+
+  std::unordered_set<Note*> selectedSet;
+  selectedSet.reserve(selectedNotes.size());
+  for (auto* note : selectedNotes) {
+    if (note && !note->isRest()) {
+      selectedSet.insert(note);
+    }
+  }
+
+  if (selectedSet.size() < 2) {
+    return {};
+  }
+
+  std::vector<BoundaryResetOperation> operations;
+  const Note* previousNonRest = nullptr;
+
+  for (const auto& note : project.getNotes()) {
+    if (note.isRest()) {
+      continue;
+    }
+
+    if (previousNonRest != nullptr &&
+        selectedSet.count(const_cast<Note*>(previousNonRest)) > 0 &&
+        selectedSet.count(const_cast<Note*>(&note)) > 0) {
+      BoundaryResetOperation operation;
+      if (handleType == PitchToolHandles::HandleType::SmoothRight) {
+        operation.editedNote = const_cast<Note*>(previousNonRest);
+        operation.partnerNote = const_cast<Note*>(&note);
+        operation.editLeftSide = false;
+      } else {
+        operation.editedNote = const_cast<Note*>(&note);
+        operation.partnerNote = const_cast<Note*>(previousNonRest);
+        operation.editLeftSide = true;
+      }
+      operations.push_back(operation);
+    }
+
+    previousNonRest = &note;
+  }
+
+  return operations;
+}
+
+}  // namespace
+
 SelectHandler::SelectHandler(PianoRollComponent &owner)
     : InteractionHandler(owner) {}
 
@@ -409,7 +490,14 @@ bool SelectHandler::mouseDrag(const juce::MouseEvent &e, float worldX,
 
     draggedNote->setPitchOffset(deltaSemitones);
     draggedNote->markDirty();
-    applyDragBasePreview(deltaSemitones);
+    if (usesBoundarySmoothingPreview(*project, {draggedNote}))
+    {
+      rebuildBoundarySmoothingPreview(*project, {draggedNote});
+    }
+    else
+    {
+      applyDragBasePreview(deltaSemitones);
+    }
 
     // Update handle positions to follow notes during drag
     owner_.updatePitchToolHandlesFromSelection();
@@ -769,8 +857,15 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
     else
     {
       // No meaningful change: reset and repaint
-      restoreDragBasePreview();
       draggedNote->setPitchOffset(0.0f);
+      if (usesBoundarySmoothingPreview(*project, {draggedNote}))
+      {
+        rebuildBoundarySmoothingPreview(*project, {draggedNote});
+      }
+      else
+      {
+        restoreDragBasePreview();
+      }
       owner_.repaint();
     }
   }
@@ -896,7 +991,13 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           handle.type ==
               PitchToolHandles::HandleType::SmoothRight)
       {
-        if (!targetNotes.empty())
+        std::vector<BoundaryResetOperation> boundaryOperations;
+        if (handle.note == nullptr)
+          boundaryOperations = collectSelectedBoundaryResetOperations(
+              *project, targetNotes, handle.type);
+
+        if (!targetNotes.empty() &&
+            (handle.note != nullptr || !boundaryOperations.empty()))
         {
 
           // Capture old params
@@ -943,20 +1044,32 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           }
           else
           {
-            for (auto *note : targetNotes)
+            for (const auto& operation : boundaryOperations)
             {
-              if (!note)
+              auto* editedNote = operation.editedNote;
+              auto* partnerNote = operation.partnerNote;
+              if (!editedNote)
                 continue;
-              if (handle.type ==
-                  PitchToolHandles::HandleType::SmoothLeft)
+
+              if (operation.editLeftSide)
               {
-                note->setSmoothLeftFrames(0);
+                editedNote->setSmoothLeftFrames(0);
+                if (partnerNote)
+                {
+                  partnerNote->setSmoothRightFrames(0);
+                  partnerNote->markDirty();
+                }
               }
               else
               {
-                note->setSmoothRightFrames(0);
+                editedNote->setSmoothRightFrames(0);
+                if (partnerNote)
+                {
+                  partnerNote->setSmoothLeftFrames(0);
+                  partnerNote->markDirty();
+                }
               }
-              note->markDirty();
+              editedNote->markDirty();
             }
           }
 
@@ -1310,8 +1423,16 @@ void SelectHandler::cancel()
 {
   if (isDragging && draggedNote)
   {
-    restoreDragBasePreview();
     draggedNote->setPitchOffset(0.0f);
+    if (owner_.project &&
+        usesBoundarySmoothingPreview(*owner_.project, {draggedNote}))
+    {
+      rebuildBoundarySmoothingPreview(*owner_.project, {draggedNote});
+    }
+    else
+    {
+      restoreDragBasePreview();
+    }
     isDragging = false;
     draggedNote = nullptr;
     dragPreviewStartFrame = -1;

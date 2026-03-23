@@ -3,8 +3,15 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 
 namespace {
+
+struct BoundaryEditOperation {
+  Note* editedNote = nullptr;
+  Note* partnerNote = nullptr;
+  bool editLeftSide = false;
+};
 
 Note* findBoundaryPartner(Project* project,
                           Note* note,
@@ -47,6 +54,57 @@ Note* findBoundaryPartner(Project* project,
   return nullptr;
 }
 
+std::vector<BoundaryEditOperation> collectSelectedBoundaryOperations(
+    Project* project,
+    const std::vector<Note*>& selectedNotes,
+    PitchToolHandles::HandleType handleType) {
+  if (!project || selectedNotes.size() < 2) {
+    return {};
+  }
+
+  std::unordered_set<Note*> selectedSet;
+  selectedSet.reserve(selectedNotes.size());
+  for (auto* note : selectedNotes) {
+    if (note && !note->isRest()) {
+      selectedSet.insert(note);
+    }
+  }
+
+  if (selectedSet.size() < 2) {
+    return {};
+  }
+
+  std::vector<BoundaryEditOperation> operations;
+  const auto& allNotes = project->getNotes();
+  const Note* previousNonRest = nullptr;
+
+  for (const auto& note : allNotes) {
+    if (note.isRest()) {
+      continue;
+    }
+
+    if (previousNonRest != nullptr &&
+        selectedSet.count(const_cast<Note*>(previousNonRest)) > 0 &&
+        selectedSet.count(const_cast<Note*>(&note)) > 0) {
+      BoundaryEditOperation operation;
+      if (handleType == PitchToolHandles::HandleType::SmoothRight) {
+        operation.editedNote = const_cast<Note*>(previousNonRest);
+        operation.partnerNote = const_cast<Note*>(&note);
+        operation.editLeftSide = false;
+      } else {
+        operation.editedNote = const_cast<Note*>(&note);
+        operation.partnerNote = const_cast<Note*>(previousNonRest);
+        operation.editLeftSide = true;
+      }
+      operations.push_back(operation);
+    }
+
+    previousNonRest = &note;
+  }
+
+  return operations;
+}
+
 }  // namespace
 
 PitchToolController::PitchToolController() {
@@ -68,14 +126,24 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
   activeHandleNote = handle.note;
   activeBoundaryPartner = nullptr;
 
-  if (handle.note != nullptr &&
-      (handle.type == PitchToolHandles::HandleType::SmoothLeft ||
-       handle.type == PitchToolHandles::HandleType::SmoothRight)) {
-    affectedNotes = {handle.note};
-    activeBoundaryPartner =
-        findBoundaryPartner(project, handle.note, handle.type);
-    if (activeBoundaryPartner != nullptr) {
-      affectedNotes.push_back(activeBoundaryPartner);
+  if (handle.type == PitchToolHandles::HandleType::SmoothLeft ||
+      handle.type == PitchToolHandles::HandleType::SmoothRight) {
+    if (handle.note != nullptr) {
+      affectedNotes = {handle.note};
+      activeBoundaryPartner =
+          findBoundaryPartner(project, handle.note, handle.type);
+      if (activeBoundaryPartner != nullptr) {
+        affectedNotes.push_back(activeBoundaryPartner);
+      }
+    } else if (!selectedNotes.empty()) {
+      affectedNotes = selectedNotes;
+      if (collectSelectedBoundaryOperations(
+              project, selectedNotes, handle.type)
+              .empty()) {
+        return false;
+      }
+    } else {
+      return false;
     }
   } else if (handle.note != nullptr) {
     affectedNotes = {handle.note};
@@ -151,14 +219,21 @@ bool PitchToolController::mouseUp(
     undoOldParams[i].midiNote += tiltMean;
   }
 
-  auto action = std::make_unique<PitchToolAction>(
-      project, affectedNotes, undoOldParams, newParams, onRangeChanged);
+  bool hasMeaningfulChange = false;
+  for (size_t i = 0; i < newParams.size() && i < undoOldParams.size(); ++i) {
+    if (newParams[i] != undoOldParams[i]) {
+      hasMeaningfulChange = true;
+      break;
+    }
+  }
 
-  if (undoManager) {
+  if (hasMeaningfulChange && undoManager) {
+    auto action = std::make_unique<PitchToolAction>(
+        project, affectedNotes, undoOldParams, newParams, onRangeChanged);
     undoManager->addAction(std::move(action));
   }
 
-  if (onRangeChanged) {
+  if (hasMeaningfulChange && onRangeChanged) {
     for (auto* note : affectedNotes) {
       if (note) {
         onRangeChanged(note->getStartFrame(), note->getEndFrame());
@@ -213,55 +288,69 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
     return nullptr;
   };
 
-  if ((type == PitchToolHandles::HandleType::SmoothLeft ||
-       type == PitchToolHandles::HandleType::SmoothRight) &&
-      activeHandleNote != nullptr) {
+  if (type == PitchToolHandles::HandleType::SmoothLeft ||
+      type == PitchToolHandles::HandleType::SmoothRight) {
     restoreOriginalState();
-
-    Note* editedNote = activeHandleNote;
-    Note* partnerNote = activeBoundaryPartner;
-    const auto* editedOrig = findOriginalParams(editedNote);
-    const auto* partnerOrig =
-        partnerNote != nullptr ? findOriginalParams(partnerNote) : nullptr;
-
-    const int originalSharedFrames =
-        type == PitchToolHandles::HandleType::SmoothLeft
-            ? std::max(editedOrig != nullptr ? editedOrig->smoothLeftFrames
-                                            : editedNote->getSmoothLeftFrames(),
-                       partnerOrig != nullptr ? partnerOrig->smoothRightFrames
-                                              : (partnerNote != nullptr
-                                                     ? partnerNote->getSmoothRightFrames()
-                                                     : 0))
-            : std::max(editedOrig != nullptr ? editedOrig->smoothRightFrames
-                                            : editedNote->getSmoothRightFrames(),
-                       partnerOrig != nullptr ? partnerOrig->smoothLeftFrames
-                                              : (partnerNote != nullptr
-                                                     ? partnerNote->getSmoothLeftFrames()
-                                                     : 0));
-
-    const int maxFrames =
-        std::max(editedNote->getDurationFrames(),
-                 partnerNote != nullptr ? partnerNote->getDurationFrames() : 0);
-    const int frameDelta = static_cast<int>(std::round(
-        (-dragDeltaY / 120.0f) * static_cast<float>(maxFrames)));
-    const int newSharedFrames = juce::jlimit(
-        0, maxFrames, originalSharedFrames + frameDelta);
-
-    if (type == PitchToolHandles::HandleType::SmoothLeft) {
-      editedNote->setSmoothLeftFrames(newSharedFrames);
-      if (partnerNote != nullptr) {
-        partnerNote->setSmoothRightFrames(newSharedFrames);
-      }
+    std::vector<BoundaryEditOperation> operations;
+    if (activeHandleNote != nullptr) {
+      operations.push_back(
+          {activeHandleNote, activeBoundaryPartner,
+           type == PitchToolHandles::HandleType::SmoothLeft});
     } else {
-      editedNote->setSmoothRightFrames(newSharedFrames);
-      if (partnerNote != nullptr) {
-        partnerNote->setSmoothLeftFrames(newSharedFrames);
-      }
+      operations =
+          collectSelectedBoundaryOperations(project, notes, type);
     }
 
-    editedNote->markDirty();
-    if (partnerNote != nullptr) {
-      partnerNote->markDirty();
+    for (const auto& operation : operations) {
+      auto* editedNote = operation.editedNote;
+      auto* partnerNote = operation.partnerNote;
+      if (editedNote == nullptr) {
+        continue;
+      }
+
+      const auto* editedOrig = findOriginalParams(editedNote);
+      const auto* partnerOrig =
+          partnerNote != nullptr ? findOriginalParams(partnerNote) : nullptr;
+
+      const int originalSharedFrames =
+          operation.editLeftSide
+              ? std::max(editedOrig != nullptr ? editedOrig->smoothLeftFrames
+                                               : editedNote->getSmoothLeftFrames(),
+                         partnerOrig != nullptr ? partnerOrig->smoothRightFrames
+                                                : (partnerNote != nullptr
+                                                       ? partnerNote->getSmoothRightFrames()
+                                                       : 0))
+              : std::max(editedOrig != nullptr ? editedOrig->smoothRightFrames
+                                               : editedNote->getSmoothRightFrames(),
+                         partnerOrig != nullptr ? partnerOrig->smoothLeftFrames
+                                                : (partnerNote != nullptr
+                                                       ? partnerNote->getSmoothLeftFrames()
+                                                       : 0));
+
+      const int maxFrames =
+          std::max(editedNote->getDurationFrames(),
+                   partnerNote != nullptr ? partnerNote->getDurationFrames() : 0);
+      const int frameDelta = static_cast<int>(std::round(
+          (-dragDeltaY / 120.0f) * static_cast<float>(maxFrames)));
+      const int newSharedFrames = juce::jlimit(
+          0, maxFrames, originalSharedFrames + frameDelta);
+
+      if (operation.editLeftSide) {
+        editedNote->setSmoothLeftFrames(newSharedFrames);
+        if (partnerNote != nullptr) {
+          partnerNote->setSmoothRightFrames(newSharedFrames);
+        }
+      } else {
+        editedNote->setSmoothRightFrames(newSharedFrames);
+        if (partnerNote != nullptr) {
+          partnerNote->setSmoothLeftFrames(newSharedFrames);
+        }
+      }
+
+      editedNote->markDirty();
+      if (partnerNote != nullptr) {
+        partnerNote->markDirty();
+      }
     }
   } else {
     for (size_t i = 0; i < notes.size(); ++i) {
