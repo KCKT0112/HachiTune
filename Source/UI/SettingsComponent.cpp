@@ -1,5 +1,6 @@
 #include "SettingsComponent.h"
 #include "../Utils/Constants.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
 
@@ -315,6 +316,31 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(pitchFilterDebugWindowButton);
 
+  pitchFilterContextRangeLabel.setText("Pitch filter context range",
+                                       juce::dontSendNotification);
+  configureRowLabel(pitchFilterContextRangeLabel);
+  addAndMakeVisible(pitchFilterContextRangeLabel);
+
+  pitchFilterContextRangeSlider.setSliderStyle(
+      juce::Slider::LinearHorizontal);
+  pitchFilterContextRangeSlider.setTextBoxStyle(
+      juce::Slider::TextBoxRight, false, 72, 24);
+  pitchFilterContextRangeSlider.setRange(0.25, 4.0, 0.25);
+  pitchFilterContextRangeSlider.setTextValueSuffix(" s");
+  pitchFilterContextRangeSlider.onValueChange = [this]()
+  {
+    pitchFilterContextSeconds =
+        static_cast<float>(pitchFilterContextRangeSlider.getValue());
+    PitchCurveProcessor::setPitchFilterContextSeconds(
+        pitchFilterContextSeconds);
+    if (settingsManager)
+    {
+      settingsManager->setPitchFilterContextSeconds(pitchFilterContextSeconds);
+      settingsManager->saveConfig();
+    }
+  };
+  addAndMakeVisible(pitchFilterContextRangeSlider);
+
   // Info label
   infoLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_MUTED);
   infoLabel.setFont(AppFont::getFont(15.0f));
@@ -393,9 +419,9 @@ SettingsComponent::SettingsComponent(
 
   // Set size based on mode
   if (pluginMode)
-    setSize(720, 460);
+    setSize(720, 500);
   else
-    setSize(820, 660);
+    setSize(820, 700);
 }
 
 SettingsComponent::~SettingsComponent()
@@ -559,6 +585,7 @@ void SettingsComponent::resized()
     layoutRow(idealSmoothingCurveDebugLabel, idealSmoothingCurveDebugToggle);
     layoutRow(pitchToolMouseMoveLabel, pitchToolMouseMoveToggle);
     layoutRow(pitchFilterDebugWindowLabel, pitchFilterDebugWindowButton);
+    layoutRow(pitchFilterContextRangeLabel, pitchFilterContextRangeSlider);
 
     infoLabel.setBounds(content.removeFromTop(56));
     content.removeFromTop(12);
@@ -1151,6 +1178,8 @@ void SettingsComponent::loadSettings()
     showIdealSmoothingCurveDebug =
         settingsManager->getShowIdealSmoothingCurveDebug();
     showPitchToolOnMouseMove = settingsManager->getShowPitchToolOnMouseMove();
+    pitchFilterContextSeconds =
+        settingsManager->getPitchFilterContextSeconds();
 
     auto langCode = settingsManager->getLanguage();
     if (langCode == "auto")
@@ -1212,6 +1241,9 @@ void SettingsComponent::loadSettings()
       showIdealSmoothingCurveDebug, juce::dontSendNotification);
   pitchToolMouseMoveToggle.setToggleState(showPitchToolOnMouseMove,
                                           juce::dontSendNotification);
+  pitchFilterContextRangeSlider.setValue(pitchFilterContextSeconds,
+                                         juce::dontSendNotification);
+  PitchCurveProcessor::setPitchFilterContextSeconds(pitchFilterContextSeconds);
 
   hasLoadedSettings = true;
   lastConfirmedDevice = currentDevice;
@@ -1251,6 +1283,7 @@ void SettingsComponent::saveSettings()
     settingsManager->setShowIdealSmoothingCurveDebug(
         showIdealSmoothingCurveDebug);
     settingsManager->setShowPitchToolOnMouseMove(showPitchToolOnMouseMove);
+    settingsManager->setPitchFilterContextSeconds(pitchFilterContextSeconds);
     settingsManager->setFollowSystemAudioOutput(followSystemAudioOutput);
     settingsManager->setPreferredAudioOutputDevice(preferredAudioOutputDevice);
     settingsManager->saveConfig();

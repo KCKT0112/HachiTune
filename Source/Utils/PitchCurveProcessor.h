@@ -5,6 +5,19 @@
 
 namespace PitchCurveProcessor
 {
+    void setPitchFilterContextSeconds(float seconds);
+    float getPitchFilterContextSeconds();
+
+    struct PitchFilterNoteContext
+    {
+        std::vector<float> contextDelta;
+        std::vector<float> noteDelta;
+        int contextStartFrame = 0;
+        int cropStartFrame = 0;
+        int cropFrameCount = 0;
+        float frameRateHz = 0.0f;
+    };
+
     struct SmoothingDebugSegment
     {
         std::vector<int> frames;
@@ -63,6 +76,16 @@ namespace PitchCurveProcessor
      */
     void rebuildCurvesFromSource(Project& project,
                                  const std::vector<float>& sourcePitchHz);
+
+    /**
+     * Build the extended source-delta context used by the FFT pitch filter.
+     * The returned context includes a fixed amount of neighboring time around
+     * the target note, along with the crop region for the note itself.
+     */
+    PitchFilterNoteContext buildPitchFilterNoteContext(
+        const Project& project,
+        const Note& note,
+        float contextSeconds = -1.0f);
 
     /**
      * Compose f0 (Hz) from base + delta + optional global offset.

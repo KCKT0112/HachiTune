@@ -3,7 +3,6 @@
 #include "../../Utils/CurveResampler.h"
 #include "../../Utils/FourierPitchFilter.h"
 #include "../../Utils/PitchCurveProcessor.h"
-#include "../../Utils/PitchToolOperations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -165,7 +164,8 @@ float computeFilterStrengthDelta(float dragDeltaY) {
 
 std::vector<float> buildFilterInputCurve(const std::vector<float>& sourceCurve,
                                          const Note& note) {
-  return PitchToolOperations::applyNoteLocalTransformations(sourceCurve, note);
+  juce::ignoreUnused(note);
+  return sourceCurve;
 }
 
 float computeNoteLowPassCutoffHz(const Note& note, float frameRateHz) {
@@ -192,18 +192,29 @@ void emitFilterPreview(
                              const std::vector<float>&,
                              const FourierPitchFilter::FilterResult&)>&
         callback,
+    Project* project,
     Note* note,
     const std::vector<float>& sourceCurve,
     float frameRateHz,
     float lowpassHz,
     float highpassHz) {
-  if (!callback || note == nullptr) {
+  if (!callback || project == nullptr || note == nullptr) {
     return;
   }
 
-  callback(note, sourceCurve,
-           FourierPitchFilter::filterPitchCurve(sourceCurve, lowpassHz,
-                                                highpassHz, frameRateHz));
+  const auto filterContext =
+      PitchCurveProcessor::buildPitchFilterNoteContext(*project, *note);
+  auto result = FourierPitchFilter::filterPitchCurve(
+      filterContext.contextDelta.empty() ? sourceCurve : filterContext.contextDelta,
+      lowpassHz,
+      highpassHz,
+      filterContext.frameRateHz > 0.0f ? filterContext.frameRateHz : frameRateHz,
+      filterContext.contextDelta.empty() ? 0 : filterContext.cropStartFrame,
+      filterContext.contextDelta.empty()
+          ? static_cast<int>(sourceCurve.size())
+          : filterContext.cropFrameCount);
+  result.contextStartFrame = filterContext.contextStartFrame;
+  callback(note, sourceCurve, std::move(result));
 }
 
 }  // namespace
@@ -299,7 +310,7 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
     }
 
     if (!previewCurve.empty()) {
-      emitFilterPreview(onFilterPreviewChanged, previewNote, previewCurve,
+      emitFilterPreview(onFilterPreviewChanged, project, previewNote, previewCurve,
                         frameRateHz,
                         computeNoteLowPassCutoffHz(*previewNote, frameRateHz),
                         computeNoteHighPassCutoffHz(*previewNote, frameRateHz));
@@ -452,9 +463,20 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
 
       const auto filterInputCurve =
           buildFilterInputCurve(originalDeltaCurves[i], *note);
-      const auto filterResult = FourierPitchFilter::filterPitchCurve(
-          filterInputCurve, computeNoteLowPassCutoffHz(*note, frameRateHz),
-          computeNoteHighPassCutoffHz(*note, frameRateHz), frameRateHz);
+      const auto filterContext =
+          PitchCurveProcessor::buildPitchFilterNoteContext(*project, *note);
+      auto filterResult = FourierPitchFilter::filterPitchCurve(
+          filterContext.contextDelta.empty() ? filterInputCurve
+                                             : filterContext.contextDelta,
+          computeNoteLowPassCutoffHz(*note, frameRateHz),
+          computeNoteHighPassCutoffHz(*note, frameRateHz),
+          filterContext.frameRateHz > 0.0f ? filterContext.frameRateHz
+                                           : frameRateHz,
+          filterContext.contextDelta.empty() ? 0 : filterContext.cropStartFrame,
+          filterContext.contextDelta.empty()
+              ? static_cast<int>(filterInputCurve.size())
+              : filterContext.cropFrameCount);
+      filterResult.contextStartFrame = filterContext.contextStartFrame;
 
       note->markDirty();
       note->markSynthDirty();
@@ -657,7 +679,7 @@ void PitchToolController::cancel() {
           i == 0) {
         const auto filterInputCurve =
             buildFilterInputCurve(originalDeltaCurves[i], *note);
-        emitFilterPreview(onFilterPreviewChanged, note, filterInputCurve,
+        emitFilterPreview(onFilterPreviewChanged, project, note, filterInputCurve,
                           frameRateHz,
                           computeNoteLowPassCutoffHz(*note, frameRateHz),
                           computeNoteHighPassCutoffHz(*note, frameRateHz));

@@ -153,6 +153,9 @@ void SettingsManager::loadConfig()
           showPitchFilterDebugWindow =
               static_cast<bool>(
                   configObj->getProperty("showPitchFilterDebugWindow"));
+        if (configObj->hasProperty("pitchFilterContextSeconds"))
+          pitchFilterContextSeconds =
+              static_cast<float>(configObj->getProperty("pitchFilterContextSeconds"));
         if (configObj->hasProperty("followSystemAudioOutput"))
           followSystemAudioOutput =
               static_cast<bool>(configObj->getProperty("followSystemAudioOutput"));
@@ -201,6 +204,7 @@ void SettingsManager::saveConfig()
   config->setProperty("showPitchToolOnMouseMove", showPitchToolOnMouseMove);
   config->setProperty("showPitchFilterDebugWindow",
                       showPitchFilterDebugWindow);
+  config->setProperty("pitchFilterContextSeconds", pitchFilterContextSeconds);
   config->setProperty("followSystemAudioOutput", followSystemAudioOutput);
   config->setProperty("preferredAudioOutputDevice", preferredAudioOutputDevice);
 

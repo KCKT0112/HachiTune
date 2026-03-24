@@ -9,6 +9,8 @@
 
 namespace
 {
+    float gPitchFilterContextSeconds = 1.0f;
+
     inline float safeFreqToMidi(float freq)
     {
         if (freq <= 0.0f)
@@ -43,6 +45,97 @@ namespace
             return rawSourceData;
 
         return CurveResampler::resampleLinear(rawSourceData, numFrames);
+    }
+
+    float computePitchCurveFrameRateHz(const Project& project)
+    {
+        const float sampleRate =
+            project.getAudioData().sampleRate > 0
+                ? static_cast<float>(project.getAudioData().sampleRate)
+                : static_cast<float>(SAMPLE_RATE);
+        return sampleRate / static_cast<float>(HOP_SIZE);
+    }
+
+    std::vector<float> composeSourceDeltaFromNotes(const Project& project,
+                                                   int totalFrames)
+    {
+        std::vector<float> denseSourceDelta(static_cast<size_t>(totalFrames), 0.0f);
+        if (totalFrames <= 0)
+            return denseSourceDelta;
+
+        for (const auto& note : project.getNotes())
+        {
+            if (note.isRest())
+                continue;
+
+            const auto sourceData = getNoteSourceDelta(note);
+            const int numFrames = static_cast<int>(sourceData.size());
+            if (numFrames <= 0)
+                continue;
+
+            const int startFrame = note.getStartFrame();
+            for (int i = 0; i < numFrames; ++i)
+            {
+                const int globalFrame = startFrame + i;
+                if (globalFrame >= 0 && globalFrame < totalFrames)
+                {
+                    denseSourceDelta[static_cast<size_t>(globalFrame)] =
+                        sourceData[static_cast<size_t>(i)];
+                }
+            }
+        }
+
+        return denseSourceDelta;
+    }
+
+    PitchCurveProcessor::PitchFilterNoteContext buildPitchFilterNoteContextFromDense(
+        const std::vector<float>& denseSourceDelta,
+        const Note& note,
+        float frameRateHz,
+        float contextSeconds)
+    {
+        PitchCurveProcessor::PitchFilterNoteContext context;
+        context.noteDelta = getNoteSourceDelta(note);
+        context.cropFrameCount =
+            std::max(0, static_cast<int>(context.noteDelta.size()));
+        context.frameRateHz = frameRateHz;
+
+        const int totalFrames = static_cast<int>(denseSourceDelta.size());
+        if (totalFrames <= 0 || context.cropFrameCount <= 0)
+            return context;
+
+        const int contextFrames = std::max(
+            1,
+            static_cast<int>(std::round(std::max(0.0f, contextSeconds) *
+                                        std::max(frameRateHz, 1.0f))));
+        const int noteStartFrame =
+            juce::jlimit(0, totalFrames, note.getStartFrame());
+        const int noteEndFrame =
+            juce::jlimit(noteStartFrame, totalFrames, note.getEndFrame());
+        const int contextStartFrame =
+            std::max(0, noteStartFrame - contextFrames);
+        const int contextEndFrame =
+            std::min(totalFrames, noteEndFrame + contextFrames);
+
+        context.contextStartFrame = contextStartFrame;
+        context.cropStartFrame = noteStartFrame - contextStartFrame;
+        context.cropFrameCount = std::min(context.cropFrameCount,
+                                          contextEndFrame - noteStartFrame);
+
+        if (contextEndFrame <= contextStartFrame ||
+            context.cropFrameCount <= 0)
+        {
+            context.contextDelta = context.noteDelta;
+            context.cropStartFrame = 0;
+            context.cropFrameCount =
+                static_cast<int>(context.noteDelta.size());
+            return context;
+        }
+
+        context.contextDelta.assign(
+            denseSourceDelta.begin() + contextStartFrame,
+            denseSourceDelta.begin() + contextEndFrame);
+        return context;
     }
 
     float clamp01(float value)
@@ -131,12 +224,10 @@ namespace
     {
         juce::ignoreUnused(basePitch);
         std::vector<float> denseDelta(static_cast<size_t>(totalFrames), 0.0f);
-        const float sampleRate =
-            project.getAudioData().sampleRate > 0
-                ? static_cast<float>(project.getAudioData().sampleRate)
-                : static_cast<float>(SAMPLE_RATE);
-        const float frameRateHz = sampleRate / static_cast<float>(HOP_SIZE);
+        const float frameRateHz = computePitchCurveFrameRateHz(project);
         const float nyquistHz = frameRateHz * 0.5f;
+        const auto denseSourceDelta =
+            composeSourceDeltaFromNotes(project, totalFrames);
 
         for (const auto& note : project.getNotes())
         {
@@ -149,9 +240,7 @@ namespace
             if (numFrames <= 0)
                 continue;
 
-            auto transformedDelta =
-                PitchToolOperations::applyNoteLocalTransformations(
-                    sourceData, note);
+            auto transformedDelta = sourceData;
 
             if (!transformedDelta.empty() &&
                 (note.getHighPassFilterStrength() > 0.0001f ||
@@ -167,12 +256,30 @@ namespace
                         ? FourierPitchFilter::highpassStrengthToCutoffHz(
                               note.getHighPassFilterStrength(), frameRateHz)
                         : 0.0f;
+                const auto filterContext = buildPitchFilterNoteContextFromDense(
+                    denseSourceDelta, note, frameRateHz,
+                    gPitchFilterContextSeconds);
 
                 transformedDelta =
                     FourierPitchFilter::filterPitchCurve(
-                        transformedDelta, lowpassHz, highpassHz, frameRateHz)
+                        filterContext.contextDelta.empty()
+                            ? transformedDelta
+                            : filterContext.contextDelta,
+                        lowpassHz,
+                        highpassHz,
+                        frameRateHz,
+                        filterContext.contextDelta.empty()
+                            ? 0
+                            : filterContext.cropStartFrame,
+                        filterContext.contextDelta.empty()
+                            ? static_cast<int>(transformedDelta.size())
+                            : filterContext.cropFrameCount)
                         .filteredPitch;
             }
+
+            transformedDelta =
+                PitchToolOperations::applyNoteLocalTransformations(
+                    transformedDelta, note);
 
             for (int i = 0; i < numFrames &&
                             i < static_cast<int>(transformedDelta.size()); ++i)
@@ -399,6 +506,16 @@ namespace
 
 namespace PitchCurveProcessor
 {
+    void setPitchFilterContextSeconds(float seconds)
+    {
+        gPitchFilterContextSeconds = juce::jlimit(0.1f, 8.0f, seconds);
+    }
+
+    float getPitchFilterContextSeconds()
+    {
+        return gPitchFilterContextSeconds;
+    }
+
     std::vector<Note*> collectDependentNotes(Project& project,
                                              const std::vector<Note*>& seedNotes)
     {
@@ -677,6 +794,28 @@ namespace PitchCurveProcessor
     {
         (void) affectedNotes;
         rebuildBaseFromNotes(project);
+    }
+
+    PitchFilterNoteContext buildPitchFilterNoteContext(
+        const Project& project,
+        const Note& note,
+        float contextSeconds)
+    {
+        const float resolvedContextSeconds =
+            contextSeconds > 0.0f ? contextSeconds : gPitchFilterContextSeconds;
+        int totalFrames = std::max(project.getAudioData().getNumFrames(),
+                                   note.getEndFrame());
+        for (const auto& candidate : project.getNotes())
+        {
+            totalFrames = std::max(totalFrames, candidate.getEndFrame());
+        }
+        const auto denseSourceDelta =
+            composeSourceDeltaFromNotes(project, totalFrames);
+        return buildPitchFilterNoteContextFromDense(
+            denseSourceDelta,
+            note,
+            computePitchCurveFrameRateHz(project),
+            resolvedContextSeconds);
     }
 
     std::vector<float> composeF0(const Project& project,

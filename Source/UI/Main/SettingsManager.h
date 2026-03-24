@@ -95,6 +95,14 @@ public:
   {
     return showPitchFilterDebugWindow;
   }
+  float getPitchFilterContextSeconds() const
+  {
+    return pitchFilterContextSeconds;
+  }
+  void setPitchFilterContextSeconds(float seconds)
+  {
+    pitchFilterContextSeconds = seconds;
+  }
 
   // Callbacks
   std::function<void()> onSettingsChanged;
@@ -126,6 +134,7 @@ private:
   bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;
   bool showPitchFilterDebugWindow = false;
+  float pitchFilterContextSeconds = 1.0f;
   bool followSystemAudioOutput = true;
   juce::String preferredAudioOutputDevice;
 

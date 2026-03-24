@@ -7,10 +7,10 @@
 #include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
 #include "../Utils/CurveResampler.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
 #include "../Utils/PlatformPaths.h"
-#include "../Utils/PitchToolOperations.h"
 #include "../Utils/SHA256Utils.h"
 #include "../Utils/UI/WindowSizing.h"
 #include <atomic>
@@ -51,7 +51,7 @@ std::vector<float> captureNoteDebugCurve(Project* project, Note* note) {
           denseDelta[static_cast<size_t>(globalFrame)];
     }
   }
-  return PitchToolOperations::applyNoteLocalTransformations(curve, *note);
+  return curve;
 }
 
 float computePitchFilterFrameRateHz(Project* project) {
@@ -66,7 +66,14 @@ FourierPitchFilter::FilterResult buildPitchFilterDebugResult(
     Project* project,
     const Note& note,
     const std::vector<float>& curve) {
-  const float frameRateHz = computePitchFilterFrameRateHz(project);
+  const auto filterContext =
+      project != nullptr
+          ? PitchCurveProcessor::buildPitchFilterNoteContext(*project, note)
+          : PitchCurveProcessor::PitchFilterNoteContext{};
+  const float frameRateHz =
+      filterContext.frameRateHz > 0.0f
+          ? filterContext.frameRateHz
+          : computePitchFilterFrameRateHz(project);
   const float lowpassHz =
       note.getLowPassFilterStrength() > 0.0001f
           ? FourierPitchFilter::lowpassStrengthToCutoffHz(
@@ -77,8 +84,17 @@ FourierPitchFilter::FilterResult buildPitchFilterDebugResult(
           ? FourierPitchFilter::highpassStrengthToCutoffHz(
                 note.getHighPassFilterStrength(), frameRateHz)
           : 0.0f;
-  return FourierPitchFilter::filterPitchCurve(curve, lowpassHz, highpassHz,
-                                              frameRateHz);
+  auto result = FourierPitchFilter::filterPitchCurve(
+      filterContext.contextDelta.empty() ? curve : filterContext.contextDelta,
+      lowpassHz,
+      highpassHz,
+      frameRateHz,
+      filterContext.contextDelta.empty() ? 0 : filterContext.cropStartFrame,
+      filterContext.contextDelta.empty()
+          ? static_cast<int>(curve.size())
+          : filterContext.cropFrameCount);
+  result.contextStartFrame = filterContext.contextStartFrame;
+  return result;
 }
 
 juce::String describePitchFilterNote(const Note* note) {
@@ -115,6 +131,8 @@ MainComponent::MainComponent(bool enableAudioDevice)
   fileManager = std::make_unique<AudioFileManager>();
   menuHandler = std::make_unique<MenuHandler>();
   settingsManager = std::make_unique<SettingsManager>();
+  PitchCurveProcessor::setPitchFilterContextSeconds(
+      settingsManager->getPitchFilterContextSeconds());
 
   LOG("MainComponent: loading ONNX models...");
   editorController->setPitchDetectorType(

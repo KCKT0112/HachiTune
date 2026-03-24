@@ -160,6 +160,8 @@ private:
   juce::ToggleButton pitchToolMouseMoveToggle;
   juce::Label pitchFilterDebugWindowLabel;
   juce::TextButton pitchFilterDebugWindowButton;
+  juce::Label pitchFilterContextRangeLabel;
+  juce::Slider pitchFilterContextRangeSlider;
 
   juce::Label infoLabel;
 
@@ -193,6 +195,7 @@ private:
   bool showActualF0Debug = false;
   bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;
+  float pitchFilterContextSeconds = 1.0f;
   SettingsTab activeTab = SettingsTab::General;
   juce::TextButton generalTabButton;
   juce::TextButton audioTabButton;
