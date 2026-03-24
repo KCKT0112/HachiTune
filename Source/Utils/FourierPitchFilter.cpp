@@ -27,13 +27,23 @@ std::vector<float> removeDcComponent(const std::vector<float>& input,
     return {};
   }
 
-  dcComponent =
-      std::accumulate(input.begin(), input.end(), 0.0f) /
-      static_cast<float>(input.size());
+  const double sum =
+      std::accumulate(input.begin(), input.end(), 0.0);
+  dcComponent = static_cast<float>(sum / static_cast<double>(input.size()));
 
   std::vector<float> zeroMean(input.size(), 0.0f);
+  double residualSum = 0.0;
   for (size_t i = 0; i < input.size(); ++i) {
     zeroMean[i] = input[i] - dcComponent;
+    residualSum += zeroMean[i];
+  }
+
+  const float residualMean =
+      static_cast<float>(residualSum / static_cast<double>(input.size()));
+  if (std::abs(residualMean) > 1.0e-7f) {
+    for (auto& value : zeroMean) {
+      value -= residualMean;
+    }
   }
   return zeroMean;
 }
@@ -62,6 +72,10 @@ SpectrumData computeMagnitudeSpectrumFromFrequencyDomain(
         (static_cast<float>(bin) * frameRateHz) / static_cast<float>(fftSize);
     spectrum.magnitudeSpectrum[static_cast<size_t>(bin)] =
         std::abs(frequencyDomain[static_cast<size_t>(bin)]);
+  }
+
+  if (!spectrum.magnitudeSpectrum.empty()) {
+    spectrum.magnitudeSpectrum[0] = 0.0f;
   }
 
   return spectrum;
@@ -108,6 +122,10 @@ SpectrumData computeMagnitudeSpectrum(const std::vector<float>& signal,
         std::abs(frequencyDomain[static_cast<size_t>(bin)]);
   }
 
+  if (!spectrum.magnitudeSpectrum.empty()) {
+    spectrum.magnitudeSpectrum[0] = 0.0f;
+  }
+
   return spectrum;
 }
 
@@ -125,6 +143,30 @@ std::vector<float> sliceCurve(const std::vector<float>& input,
                    frameCount);
   return std::vector<float>(input.begin() + clampedStart,
                             input.begin() + clampedStart + clampedCount);
+}
+
+float computeSignalEnergy(const std::vector<float>& signal,
+                          int startFrame,
+                          int frameCount) {
+  if (signal.empty()) {
+    return 0.0f;
+  }
+
+  const int clampedStart =
+      juce::jlimit(0, static_cast<int>(signal.size()), startFrame);
+  const int clampedCount =
+      frameCount < 0
+          ? static_cast<int>(signal.size()) - clampedStart
+          : juce::jlimit(0, static_cast<int>(signal.size()) - clampedStart,
+                         frameCount);
+
+  double energy = 0.0;
+  for (int i = 0; i < clampedCount; ++i) {
+    const float value = signal[static_cast<size_t>(clampedStart + i)];
+    energy += static_cast<double>(value) * static_cast<double>(value);
+  }
+
+  return static_cast<float>(energy);
 }
 
 float smoothHighpassGain(float frequencyHz,
@@ -223,6 +265,8 @@ FourierPitchFilter::filterPitchCurve(const std::vector<float>& deltaPitch,
 
   result.zeroMeanInputPitch = removeDcComponent(deltaPitch, result.dcComponent);
   if (frameRateHz <= 0.0f) {
+    result.dcRestoreRatio = 1.0f;
+    result.restoredDcComponent = result.dcComponent;
     result.zeroMeanFilteredPitch = result.zeroMeanInputPitch;
     result.contextFilteredPitch = deltaPitch;
     result.filteredPitch = sliceCurve(result.contextFilteredPitch,
@@ -258,6 +302,9 @@ FourierPitchFilter::filterPitchCurve(const std::vector<float>& deltaPitch,
   }
 
   fft.perform(timeDomain.data(), frequencyDomain.data(), false);
+  if (!frequencyDomain.empty()) {
+    frequencyDomain[0] = juce::dsp::Complex<float>(0.0f, 0.0f);
+  }
 
   const auto originalSpectrum =
       computeMagnitudeSpectrumFromFrequencyDomain(frequencyDomain, frameRateHz);
@@ -303,6 +350,10 @@ FourierPitchFilter::filterPitchCurve(const std::vector<float>& deltaPitch,
     }
   }
 
+  if (!filteredDomain.empty()) {
+    filteredDomain[0] = juce::dsp::Complex<float>(0.0f, 0.0f);
+  }
+
   if ((fftSize % 2) == 0) {
     const int nyquistBin = fftSize / 2;
     const float frequencyHz = (static_cast<float>(nyquistBin) * frameRateHz) /
@@ -322,11 +373,22 @@ FourierPitchFilter::filterPitchCurve(const std::vector<float>& deltaPitch,
     result.zeroMeanFilteredPitch[static_cast<size_t>(i)] =
         timeDomain[static_cast<size_t>(i)].real();
   }
+  const float originalEnergy = computeSignalEnergy(result.zeroMeanInputPitch,
+                                                   result.cropStartFrame,
+                                                   result.cropFrameCount);
+  const float filteredEnergy = computeSignalEnergy(result.zeroMeanFilteredPitch,
+                                                   result.cropStartFrame,
+                                                   result.cropFrameCount);
+  result.dcRestoreRatio =
+      originalEnergy > 1.0e-8f
+          ? juce::jlimit(0.0f, 1.0f, filteredEnergy / originalEnergy)
+          : 0.0f;
+  result.restoredDcComponent = result.dcComponent * result.dcRestoreRatio;
   result.contextFilteredPitch.resize(static_cast<size_t>(inputSize), 0.0f);
   for (int i = 0; i < inputSize; ++i) {
     result.contextFilteredPitch[static_cast<size_t>(i)] =
         result.zeroMeanFilteredPitch[static_cast<size_t>(i)] +
-        result.dcComponent;
+        result.restoredDcComponent;
   }
   result.filteredPitch = sliceCurve(result.contextFilteredPitch,
                                     result.cropStartFrame,

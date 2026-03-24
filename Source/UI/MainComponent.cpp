@@ -1403,6 +1403,12 @@ void MainComponent::onPitchEdited()
 {
   pianoRoll.repaint();
   parameterPanel.updateFromNote();
+  if (pitchFilterDebugWindow)
+  {
+    const auto selectedNotes = pianoRoll.getSelectedNotes();
+    updatePitchFilterDebugWindow(
+        selectedNotes.empty() ? nullptr : selectedNotes.front());
+  }
 }
 
 void MainComponent::onZoomChanged(float pixelsPerSecond)

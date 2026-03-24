@@ -589,6 +589,73 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type == PitchToolHandles::HandleType::HighPassLeft ||
           handle.type == PitchToolHandles::HandleType::LowPassRight)
       {
+        if (targetNotes.empty())
+          return;
+
+        std::vector<TransformParams> oldParams;
+        std::vector<TransformParams> newParams;
+        oldParams.reserve(targetNotes.size());
+        newParams.reserve(targetNotes.size());
+
+        bool hasChange = false;
+        for (auto* note : targetNotes)
+        {
+          if (note)
+            oldParams.push_back(TransformParams::fromNote(*note));
+          else
+            oldParams.emplace_back();
+        }
+
+        for (auto* note : targetNotes)
+        {
+          if (!note)
+          {
+            newParams.emplace_back();
+            continue;
+          }
+
+          if (handle.type == PitchToolHandles::HandleType::HighPassLeft)
+          {
+            hasChange = hasChange ||
+                        std::abs(note->getHighPassFilterStrength()) > 0.0001f;
+            note->setHighPassFilterStrength(0.0f);
+          }
+          else
+          {
+            hasChange = hasChange ||
+                        std::abs(note->getLowPassFilterStrength()) > 0.0001f;
+            note->setLowPassFilterStrength(0.0f);
+          }
+
+          note->markDirty();
+          note->markSynthDirty();
+          newParams.push_back(TransformParams::fromNote(*note));
+        }
+
+        if (!hasChange)
+          return;
+
+        if (owner_.undoManager)
+        {
+          auto action = std::make_unique<PitchToolAction>(
+              project, targetNotes, oldParams, newParams,
+              [this](int, int)
+              { rebuildAndNotify(); });
+          owner_.undoManager->addAction(std::move(action));
+        }
+
+        rebuildAndNotify();
+        if (owner_.onNoteSelected)
+        {
+          for (auto* note : targetNotes)
+          {
+            if (note != nullptr)
+            {
+              owner_.onNoteSelected(note);
+              break;
+            }
+          }
+        }
         return;
       }
 

@@ -260,7 +260,11 @@ void PitchFilterDebugComponent::paint(juce::Graphics& g) {
   const juce::String summary =
       hasData
           ? noteDescription + contextSummary + "  |  DC removed: " +
-                juce::String(filterResult.dcComponent, 4) + " st  |  HP: " +
+                juce::String(filterResult.dcComponent, 4) +
+                " st  |  DC restored: " +
+                juce::String(filterResult.restoredDcComponent, 4) +
+                " st (" + juce::String(filterResult.dcRestoreRatio * 100.0f, 1) +
+                "%)  |  HP: " +
                 juce::String(filterResult.highpassHz, 3) + " Hz  |  LP: " +
                 juce::String(filterResult.lowpassHz, 3) + " Hz  |  Fs: " +
                 juce::String(filterResult.frameRateHz, 3) + " Hz"

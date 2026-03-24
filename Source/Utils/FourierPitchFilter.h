@@ -25,6 +25,8 @@ public:
     int cropFrameCount = 0;
     int contextStartFrame = 0;
     float dcComponent = 0.0f;
+    float restoredDcComponent = 0.0f;
+    float dcRestoreRatio = 1.0f;
     float lowpassHz = 0.0f;
     float highpassHz = 0.0f;
     float frameRateHz = 0.0f;
