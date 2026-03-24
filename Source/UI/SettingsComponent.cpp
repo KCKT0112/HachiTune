@@ -300,6 +300,21 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(pitchToolMouseMoveToggle);
 
+  pitchFilterDebugWindowLabel.setText(
+      TR("settings.show_pitch_filter_debug_window"),
+      juce::dontSendNotification);
+  configureRowLabel(pitchFilterDebugWindowLabel);
+  addAndMakeVisible(pitchFilterDebugWindowLabel);
+
+  configureTabButton(pitchFilterDebugWindowButton);
+  pitchFilterDebugWindowButton.setButtonText(TR("settings.open_debug_window"));
+  pitchFilterDebugWindowButton.onClick = [this]()
+  {
+    if (onOpenPitchFilterDebugWindowRequested)
+      onOpenPitchFilterDebugWindowRequested();
+  };
+  addAndMakeVisible(pitchFilterDebugWindowButton);
+
   // Info label
   infoLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_MUTED);
   infoLabel.setFont(AppFont::getFont(15.0f));
@@ -378,9 +393,9 @@ SettingsComponent::SettingsComponent(
 
   // Set size based on mode
   if (pluginMode)
-    setSize(720, 420);
+    setSize(720, 460);
   else
-    setSize(820, 620);
+    setSize(820, 660);
 }
 
 SettingsComponent::~SettingsComponent()
@@ -405,6 +420,7 @@ SettingsComponent::~SettingsComponent()
   actualF0DebugToggle.setLookAndFeel(nullptr);
   idealSmoothingCurveDebugToggle.setLookAndFeel(nullptr);
   pitchToolMouseMoveToggle.setLookAndFeel(nullptr);
+  pitchFilterDebugWindowButton.setLookAndFeel(nullptr);
 }
 
 void SettingsComponent::changeListenerCallback(
@@ -542,6 +558,7 @@ void SettingsComponent::resized()
     layoutRow(actualF0DebugLabel, actualF0DebugToggle);
     layoutRow(idealSmoothingCurveDebugLabel, idealSmoothingCurveDebugToggle);
     layoutRow(pitchToolMouseMoveLabel, pitchToolMouseMoveToggle);
+    layoutRow(pitchFilterDebugWindowLabel, pitchFilterDebugWindowButton);
 
     infoLabel.setBounds(content.removeFromTop(56));
     content.removeFromTop(12);
@@ -790,6 +807,12 @@ void SettingsComponent::updateTabVisibility()
   uvInterpolationDebugToggle.setVisible(showGeneral);
   actualF0DebugLabel.setVisible(showGeneral);
   actualF0DebugToggle.setVisible(showGeneral);
+  idealSmoothingCurveDebugLabel.setVisible(showGeneral);
+  idealSmoothingCurveDebugToggle.setVisible(showGeneral);
+  pitchToolMouseMoveLabel.setVisible(showGeneral);
+  pitchToolMouseMoveToggle.setVisible(showGeneral);
+  pitchFilterDebugWindowLabel.setVisible(showGeneral);
+  pitchFilterDebugWindowButton.setVisible(showGeneral);
   infoLabel.setVisible(showGeneral);
 
   audioSectionLabel.setVisible(showAudio);

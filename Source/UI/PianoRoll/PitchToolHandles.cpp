@@ -4,7 +4,7 @@
 
 PitchToolHandles::PitchToolHandles() {
   // Initialize (currently empty, but reserve space)
-  handles.reserve(20);  // Typical max handles for multi-note selection
+  handles.reserve(24);  // Typical max handles for multi-note selection
 }
 
 void PitchToolHandles::updateHandles(const std::vector<Note*>& selectedNotes,
@@ -73,6 +73,12 @@ void PitchToolHandles::updateHandles(const std::vector<Note*>& selectedNotes,
 
   // 5. Tilt Right: Top-Right corner
   addHandle(HandleType::TiltRight, rightX, topY, primaryNote);
+
+  // 6. High-pass filter: Bottom-left corner
+  addHandle(HandleType::HighPassLeft, leftX, bottomY, primaryNote);
+
+  // 7. Low-pass filter: Bottom-right corner
+  addHandle(HandleType::LowPassRight, rightX, bottomY, primaryNote);
 }
 
 void PitchToolHandles::draw(juce::Graphics& g) const {
@@ -146,6 +152,26 @@ void PitchToolHandles::draw(juce::Graphics& g) const {
         g.strokePath(arc, juce::PathStrokeType(1.8f));
         break;
       }
+      case HandleType::HighPassLeft:
+      {
+        const float lowY = iconBounds.getBottom() - 1.0f;
+        const float highY = iconBounds.getY() + 1.0f;
+        const float stepX = iconBounds.getX() + iconBounds.getWidth() * 0.42f;
+        g.drawLine(iconBounds.getX(), lowY, stepX, lowY, 1.8f);
+        g.drawLine(stepX, lowY, stepX, highY, 1.8f);
+        g.drawLine(stepX, highY, iconBounds.getRight(), highY, 1.8f);
+        break;
+      }
+      case HandleType::LowPassRight:
+      {
+        const float highY = iconBounds.getY() + 1.0f;
+        const float lowY = iconBounds.getBottom() - 1.0f;
+        const float stepX = iconBounds.getX() + iconBounds.getWidth() * 0.58f;
+        g.drawLine(iconBounds.getX(), highY, stepX, highY, 1.8f);
+        g.drawLine(stepX, highY, stepX, lowY, 1.8f);
+        g.drawLine(stepX, lowY, iconBounds.getRight(), lowY, 1.8f);
+        break;
+      }
       case HandleType::None:
       default:
         break;
@@ -199,6 +225,12 @@ juce::Colour PitchToolHandles::getColorForType(HandleType type) const {
     case HandleType::SmoothLeft:
     case HandleType::SmoothRight:
       return juce::Colours::cyan; // "Smooth" implies liquid/soft -> cyan/blue
+
+    case HandleType::HighPassLeft:
+      return juce::Colours::yellowgreen;
+
+    case HandleType::LowPassRight:
+      return juce::Colours::deepskyblue;
       
     default:
       return juce::Colours::white;

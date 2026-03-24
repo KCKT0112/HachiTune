@@ -1,17 +1,29 @@
 #include "PitchToolController.h"
+#include "../../Utils/Constants.h"
+#include "../../Utils/CurveResampler.h"
+#include "../../Utils/FourierPitchFilter.h"
 #include "../../Utils/PitchCurveProcessor.h"
+#include "../../Utils/PitchToolOperations.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <unordered_set>
 
 namespace {
+
+constexpr float kPitchFilterDragRangePixels = 180.0f;
 
 struct BoundaryEditOperation {
   Note* editedNote = nullptr;
   Note* partnerNote = nullptr;
   bool editLeftSide = false;
 };
+
+bool isFilterHandle(PitchToolHandles::HandleType type) {
+  return type == PitchToolHandles::HandleType::HighPassLeft ||
+         type == PitchToolHandles::HandleType::LowPassRight;
+}
 
 Note* findBoundaryPartner(Project* project,
                           Note* note,
@@ -105,6 +117,95 @@ std::vector<BoundaryEditOperation> collectSelectedBoundaryOperations(
   return operations;
 }
 
+std::vector<float> captureNoteSourceCurve(Project* project, Note* note) {
+  if (!project || !note || note->isRest()) {
+    return {};
+  }
+
+  const int durationFrames = note->getDurationFrames();
+  if (durationFrames <= 0) {
+    return {};
+  }
+
+  const auto& storedCurve = note->hasOriginalDeltaPitch()
+                                ? note->getOriginalDeltaPitch()
+                                : note->getDeltaPitch();
+  if (!storedCurve.empty()) {
+    if (static_cast<int>(storedCurve.size()) == durationFrames) {
+      return storedCurve;
+    }
+    return CurveResampler::resampleLinear(storedCurve, durationFrames);
+  }
+
+  const auto& denseDelta = project->getAudioData().deltaPitch;
+  std::vector<float> curve(static_cast<size_t>(durationFrames), 0.0f);
+  for (int i = 0; i < durationFrames; ++i) {
+    const int globalFrame = note->getStartFrame() + i;
+    if (globalFrame >= 0 &&
+        globalFrame < static_cast<int>(denseDelta.size())) {
+      curve[static_cast<size_t>(i)] =
+          denseDelta[static_cast<size_t>(globalFrame)];
+    }
+  }
+  return curve;
+}
+
+float computePitchCurveFrameRateHz(Project* project) {
+  const float sampleRate =
+      project != nullptr && project->getAudioData().sampleRate > 0
+          ? static_cast<float>(project->getAudioData().sampleRate)
+          : static_cast<float>(SAMPLE_RATE);
+  return sampleRate / static_cast<float>(HOP_SIZE);
+}
+
+float computeFilterStrengthDelta(float dragDeltaY) {
+  return juce::jlimit(-1.0f, 1.0f,
+                      -dragDeltaY / kPitchFilterDragRangePixels);
+}
+
+std::vector<float> buildFilterInputCurve(const std::vector<float>& sourceCurve,
+                                         const Note& note) {
+  return PitchToolOperations::applyNoteLocalTransformations(sourceCurve, note);
+}
+
+float computeNoteLowPassCutoffHz(const Note& note, float frameRateHz) {
+  const float nyquistHz = frameRateHz * 0.5f;
+  if (note.getLowPassFilterStrength() <= 0.0001f) {
+    return nyquistHz;
+  }
+
+  return FourierPitchFilter::lowpassStrengthToCutoffHz(
+      note.getLowPassFilterStrength(), frameRateHz);
+}
+
+float computeNoteHighPassCutoffHz(const Note& note, float frameRateHz) {
+  if (note.getHighPassFilterStrength() <= 0.0001f) {
+    return 0.0f;
+  }
+
+  return FourierPitchFilter::highpassStrengthToCutoffHz(
+      note.getHighPassFilterStrength(), frameRateHz);
+}
+
+void emitFilterPreview(
+    const std::function<void(Note*,
+                             const std::vector<float>&,
+                             const FourierPitchFilter::FilterResult&)>&
+        callback,
+    Note* note,
+    const std::vector<float>& sourceCurve,
+    float frameRateHz,
+    float lowpassHz,
+    float highpassHz) {
+  if (!callback || note == nullptr) {
+    return;
+  }
+
+  callback(note, sourceCurve,
+           FourierPitchFilter::filterPitchCurve(sourceCurve, lowpassHz,
+                                                highpassHz, frameRateHz));
+}
+
 }  // namespace
 
 PitchToolController::PitchToolController() {
@@ -154,6 +255,7 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
   }
 
   originalParams.clear();
+  originalDeltaCurves.clear();
   originalParams.reserve(affectedNotes.size());
   for (auto* note : affectedNotes) {
     if (note) {
@@ -168,6 +270,39 @@ bool PitchToolController::mouseDown(const juce::MouseEvent& e,
       originalParams.push_back(params);
     } else {
       originalParams.emplace_back();
+    }
+  }
+
+  if (isFilterHandle(handle.type)) {
+    originalDeltaCurves.reserve(affectedNotes.size());
+    for (auto* note : affectedNotes) {
+      originalDeltaCurves.push_back(captureNoteSourceCurve(project, note));
+    }
+
+    const float frameRateHz = computePitchCurveFrameRateHz(project);
+    Note* previewNote = nullptr;
+    std::vector<float> previewCurve;
+    for (size_t i = 0; i < affectedNotes.size(); ++i) {
+      auto* note = affectedNotes[i];
+      if (note == nullptr || i >= originalDeltaCurves.size()) {
+        continue;
+      }
+
+      if ((activeHandleNote != nullptr && note == activeHandleNote) ||
+          previewNote == nullptr) {
+        previewNote = note;
+        previewCurve = buildFilterInputCurve(originalDeltaCurves[i], *note);
+        if (note == activeHandleNote) {
+          break;
+        }
+      }
+    }
+
+    if (!previewCurve.empty()) {
+      emitFilterPreview(onFilterPreviewChanged, previewNote, previewCurve,
+                        frameRateHz,
+                        computeNoteLowPassCutoffHz(*previewNote, frameRateHz),
+                        computeNoteHighPassCutoffHz(*previewNote, frameRateHz));
     }
   }
 
@@ -247,6 +382,7 @@ bool PitchToolController::mouseUp(
   activeBoundaryPartner = nullptr;
   affectedNotes.clear();
   originalParams.clear();
+  originalDeltaCurves.clear();
   return true;
 }
 
@@ -288,8 +424,54 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
     return nullptr;
   };
 
-  if (type == PitchToolHandles::HandleType::SmoothLeft ||
-      type == PitchToolHandles::HandleType::SmoothRight) {
+  if (type == PitchToolHandles::HandleType::HighPassLeft ||
+      type == PitchToolHandles::HandleType::LowPassRight) {
+    restoreOriginalState();
+
+    const float strengthDelta = computeFilterStrengthDelta(dragDeltaY);
+    const float frameRateHz = computePitchCurveFrameRateHz(project);
+    Note* previewNote = nullptr;
+    std::vector<float> previewOriginalCurve;
+    FourierPitchFilter::FilterResult previewResult;
+
+    for (size_t i = 0; i < notes.size(); ++i) {
+      auto* note = notes[i];
+      if (!note || i >= originalDeltaCurves.size()) {
+        continue;
+      }
+
+      if (type == PitchToolHandles::HandleType::HighPassLeft) {
+        note->setHighPassFilterStrength(juce::jlimit(
+            0.0f, 1.0f,
+            originalParams[i].highPassFilterStrength + strengthDelta));
+      } else {
+        note->setLowPassFilterStrength(juce::jlimit(
+            0.0f, 1.0f,
+            originalParams[i].lowPassFilterStrength + strengthDelta));
+      }
+
+      const auto filterInputCurve =
+          buildFilterInputCurve(originalDeltaCurves[i], *note);
+      const auto filterResult = FourierPitchFilter::filterPitchCurve(
+          filterInputCurve, computeNoteLowPassCutoffHz(*note, frameRateHz),
+          computeNoteHighPassCutoffHz(*note, frameRateHz), frameRateHz);
+
+      note->markDirty();
+      note->markSynthDirty();
+
+      if ((activeHandleNote != nullptr && note == activeHandleNote) ||
+          previewNote == nullptr) {
+        previewNote = note;
+        previewOriginalCurve = filterInputCurve;
+        previewResult = filterResult;
+      }
+    }
+
+    if (previewNote != nullptr && onFilterPreviewChanged) {
+      onFilterPreviewChanged(previewNote, previewOriginalCurve, previewResult);
+    }
+  } else if (type == PitchToolHandles::HandleType::SmoothLeft ||
+             type == PitchToolHandles::HandleType::SmoothRight) {
     restoreOriginalState();
     std::vector<BoundaryEditOperation> operations;
     if (activeHandleNote != nullptr) {
@@ -348,8 +530,10 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
       }
 
       editedNote->markDirty();
+      editedNote->markSynthDirty();
       if (partnerNote != nullptr) {
         partnerNote->markDirty();
+        partnerNote->markSynthDirty();
       }
     }
   } else {
@@ -390,20 +574,23 @@ void PitchToolController::applyOperation(std::vector<Note*>& notes,
         }
         case PitchToolHandles::HandleType::SmoothLeft:
         case PitchToolHandles::HandleType::SmoothRight:
+        case PitchToolHandles::HandleType::HighPassLeft:
+        case PitchToolHandles::HandleType::LowPassRight:
         case PitchToolHandles::HandleType::None:
         default:
           continue;
       }
 
       note->markDirty();
+      note->markSynthDirty();
     }
   }
 
   const auto dependentNotes =
       PitchCurveProcessor::collectDependentNotes(*project, notes);
 
-  // Boundary smoothing now spans both notes around a transition, so the dense
-  // curve is rebuilt from note parameters for correctness during drag.
+  // Boundary smoothing and FFT filters are both derived from note state, so
+  // rebuild from note parameters on every drag update.
   PitchCurveProcessor::rebuildDeltaForNotes(*project, dependentNotes);
 
   if (!dependentNotes.empty()) {
@@ -433,6 +620,49 @@ void PitchToolController::cancel() {
 
       const float tiltMean = (params.tiltLeft + params.tiltRight) / 2.0f;
       affectedNotes[i]->setMidiNote(params.midiNote + tiltMean);
+      affectedNotes[i]->markDirty();
+      affectedNotes[i]->markSynthDirty();
+    }
+  }
+
+  if (project != nullptr && !affectedNotes.empty()) {
+    const auto dependentNotes =
+        PitchCurveProcessor::collectDependentNotes(*project, affectedNotes);
+    PitchCurveProcessor::rebuildDeltaForNotes(*project, dependentNotes);
+
+    if (!dependentNotes.empty()) {
+      int minFrame = std::numeric_limits<int>::max();
+      int maxFrame = std::numeric_limits<int>::min();
+      for (const auto* note : dependentNotes) {
+        minFrame = std::min(minFrame, note->getStartFrame());
+        maxFrame = std::max(maxFrame, note->getEndFrame());
+      }
+      project->setF0DirtyRange(minFrame, maxFrame);
+    }
+
+    if (onPitchEdited) {
+      onPitchEdited();
+    }
+  }
+
+  if (isFilterHandle(activeHandleType)) {
+    const float frameRateHz = computePitchCurveFrameRateHz(project);
+    for (size_t i = 0; i < affectedNotes.size(); ++i) {
+      auto* note = affectedNotes[i];
+      if (note == nullptr || i >= originalDeltaCurves.size()) {
+        continue;
+      }
+
+      if (activeHandleNote == nullptr || note == activeHandleNote ||
+          i == 0) {
+        const auto filterInputCurve =
+            buildFilterInputCurve(originalDeltaCurves[i], *note);
+        emitFilterPreview(onFilterPreviewChanged, note, filterInputCurve,
+                          frameRateHz,
+                          computeNoteLowPassCutoffHz(*note, frameRateHz),
+                          computeNoteHighPassCutoffHz(*note, frameRateHz));
+        break;
+      }
     }
   }
 
@@ -442,4 +672,5 @@ void PitchToolController::cancel() {
   activeBoundaryPartner = nullptr;
   affectedNotes.clear();
   originalParams.clear();
+  originalDeltaCurves.clear();
 }

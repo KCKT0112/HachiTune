@@ -189,6 +189,13 @@ PianoRollComponent::PianoRollComponent()
     if (onPitchEdited)
       onPitchEdited();
   };
+  pitchToolController->onFilterPreviewChanged =
+      [this](Note* note, const std::vector<float>& sourceCurve,
+             const FourierPitchFilter::FilterResult& result)
+  {
+    if (onPitchFilterPreviewChanged)
+      onPitchFilterPreviewChanged(note, sourceCurve, result);
+  };
 
   // Setup noteSplitter callbacks
   noteSplitter->onNoteSplit = [this]()

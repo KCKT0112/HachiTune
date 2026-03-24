@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Models/Note.h"
 #include <vector>
 
 namespace PitchToolOperations {
@@ -51,5 +52,9 @@ std::vector<float> applyAllTransformations(const std::vector<float>& originalDel
                                            float tiltLeft,
                                            float tiltRight,
                                            float varianceScale);
+
+std::vector<float> applyNoteLocalTransformations(
+    const std::vector<float>& originalDelta,
+    const Note& note);
 
 } // namespace PitchToolOperations

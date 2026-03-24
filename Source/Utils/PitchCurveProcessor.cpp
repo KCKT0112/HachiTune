@@ -1,6 +1,7 @@
 #include "PitchCurveProcessor.h"
 #include "BasePitchCurve.h"
 #include "CurveResampler.h"
+#include "FourierPitchFilter.h"
 #include "PitchToolOperations.h"
 #include "../Utils/Constants.h"
 #include <algorithm>
@@ -128,7 +129,14 @@ namespace
                                                 const std::vector<float>& basePitch,
                                                 int totalFrames)
     {
+        juce::ignoreUnused(basePitch);
         std::vector<float> denseDelta(static_cast<size_t>(totalFrames), 0.0f);
+        const float sampleRate =
+            project.getAudioData().sampleRate > 0
+                ? static_cast<float>(project.getAudioData().sampleRate)
+                : static_cast<float>(SAMPLE_RATE);
+        const float frameRateHz = sampleRate / static_cast<float>(HOP_SIZE);
+        const float nyquistHz = frameRateHz * 0.5f;
 
         for (const auto& note : project.getNotes())
         {
@@ -141,19 +149,29 @@ namespace
             if (numFrames <= 0)
                 continue;
 
-            auto transformedDelta = PitchToolOperations::applyAllTransformations(
-                sourceData,
-                note.getTiltLeft(),
-                note.getTiltRight(),
-                note.getVarianceScale());
+            auto transformedDelta =
+                PitchToolOperations::applyNoteLocalTransformations(
+                    sourceData, note);
 
-            const float dScale = note.getDeltaScale();
-            const float dOffset = note.getDeltaOffset();
-            if (std::abs(dScale - 1.0f) > 0.0001f ||
-                std::abs(dOffset) > 0.0001f)
+            if (!transformedDelta.empty() &&
+                (note.getHighPassFilterStrength() > 0.0001f ||
+                 note.getLowPassFilterStrength() > 0.0001f))
             {
-                for (auto& value : transformedDelta)
-                    value = value * dScale + dOffset;
+                const float lowpassHz =
+                    note.getLowPassFilterStrength() > 0.0001f
+                        ? FourierPitchFilter::lowpassStrengthToCutoffHz(
+                              note.getLowPassFilterStrength(), frameRateHz)
+                        : nyquistHz;
+                const float highpassHz =
+                    note.getHighPassFilterStrength() > 0.0001f
+                        ? FourierPitchFilter::highpassStrengthToCutoffHz(
+                              note.getHighPassFilterStrength(), frameRateHz)
+                        : 0.0f;
+
+                transformedDelta =
+                    FourierPitchFilter::filterPitchCurve(
+                        transformedDelta, lowpassHz, highpassHz, frameRateHz)
+                        .filteredPitch;
             }
 
             for (int i = 0; i < numFrames &&

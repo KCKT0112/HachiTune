@@ -16,6 +16,8 @@ public:
     ReduceVariance,
     SmoothLeft,
     SmoothRight,
+    HighPassLeft,
+    LowPassRight,
     None
   };
 

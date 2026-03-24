@@ -586,6 +586,12 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
         return project->getSelectedNotes();
       }();
 
+      if (handle.type == PitchToolHandles::HandleType::HighPassLeft ||
+          handle.type == PitchToolHandles::HandleType::LowPassRight)
+      {
+        return;
+      }
+
       // SmoothLeft/SmoothRight: double-click resets the smoothing range.
       if (handle.type ==
               PitchToolHandles::HandleType::SmoothLeft ||

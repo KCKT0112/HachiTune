@@ -53,6 +53,7 @@ public:
   std::function<void(bool)> onShowActualF0DebugChanged;
   std::function<void(bool)> onShowIdealSmoothingCurveDebugChanged;
   std::function<void(bool)> onShowPitchToolOnMouseMoveChanged;
+  std::function<void()> onOpenPitchFilterDebugWindowRequested;
   std::function<bool()> canChangeDevice;
 
   // Load/save settings
@@ -157,6 +158,8 @@ private:
   juce::ToggleButton idealSmoothingCurveDebugToggle;
   juce::Label pitchToolMouseMoveLabel;
   juce::ToggleButton pitchToolMouseMoveToggle;
+  juce::Label pitchFilterDebugWindowLabel;
+  juce::TextButton pitchFilterDebugWindowButton;
 
   juce::Label infoLabel;
 

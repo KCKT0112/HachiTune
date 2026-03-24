@@ -4,6 +4,7 @@
 #include "../../Models/Note.h"
 #include "../../Models/Project.h"
 #include "../../Undo/UndoActions.h"
+#include "../../Utils/FourierPitchFilter.h"
 #include "../../Utils/PitchToolOperations.h"
 #include "../../Utils/TransformParams.h"
 #include "CoordinateMapper.h"
@@ -64,6 +65,14 @@ public:
    */
   std::function<void()> onPitchEdited;
 
+  /**
+   * Callback fired while previewing FFT filter edits for debug visualization.
+   */
+  std::function<void(Note*,
+                     const std::vector<float>&,
+                     const FourierPitchFilter::FilterResult&)>
+      onFilterPreviewChanged;
+
 private:
   Project* project = nullptr;
   bool dragging = false;
@@ -72,6 +81,7 @@ private:
   Note* activeBoundaryPartner = nullptr;
   std::vector<Note*> affectedNotes;
   std::vector<TransformParams> originalParams;
+  std::vector<std::vector<float>> originalDeltaCurves;
   juce::Point<float> dragStartPos;
 
   void applyOperation(std::vector<Note*>& notes,

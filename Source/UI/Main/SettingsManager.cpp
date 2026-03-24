@@ -149,6 +149,10 @@ void SettingsManager::loadConfig()
         if (configObj->hasProperty("showPitchToolOnMouseMove"))
           showPitchToolOnMouseMove =
               static_cast<bool>(configObj->getProperty("showPitchToolOnMouseMove"));
+        if (configObj->hasProperty("showPitchFilterDebugWindow"))
+          showPitchFilterDebugWindow =
+              static_cast<bool>(
+                  configObj->getProperty("showPitchFilterDebugWindow"));
         if (configObj->hasProperty("followSystemAudioOutput"))
           followSystemAudioOutput =
               static_cast<bool>(configObj->getProperty("followSystemAudioOutput"));
@@ -195,6 +199,8 @@ void SettingsManager::saveConfig()
   config->setProperty("showIdealSmoothingCurveDebug",
                       showIdealSmoothingCurveDebug);
   config->setProperty("showPitchToolOnMouseMove", showPitchToolOnMouseMove);
+  config->setProperty("showPitchFilterDebugWindow",
+                      showPitchFilterDebugWindow);
   config->setProperty("followSystemAudioOutput", followSystemAudioOutput);
   config->setProperty("preferredAudioOutputDevice", preferredAudioOutputDevice);
 

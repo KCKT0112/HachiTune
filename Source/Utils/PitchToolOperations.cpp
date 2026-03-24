@@ -92,4 +92,23 @@ std::vector<float> applyAllTransformations(
   return result;
 }
 
+std::vector<float> applyNoteLocalTransformations(
+    const std::vector<float>& originalDelta,
+    const Note& note) {
+  auto result = applyAllTransformations(originalDelta, note.getTiltLeft(),
+                                        note.getTiltRight(),
+                                        note.getVarianceScale());
+
+  const float dScale = note.getDeltaScale();
+  const float dOffset = note.getDeltaOffset();
+  if (std::abs(dScale - 1.0f) > 0.0001f ||
+      std::abs(dOffset) > 0.0001f) {
+    for (auto& value : result) {
+      value = value * dScale + dOffset;
+    }
+  }
+
+  return result;
+}
+
 } // namespace PitchToolOperations

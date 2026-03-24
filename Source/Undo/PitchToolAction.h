@@ -92,3 +92,77 @@ private:
     std::vector<TransformParams> newParams;
     std::function<void(int, int)> onRangeChanged;
 };
+
+/**
+ * Undo action for destructive note-local pitch filtering.
+ * Stores the note-local source curves that rebuild the dense deltaPitch.
+ */
+class PitchToolCurveAction : public UndoableAction
+{
+public:
+    PitchToolCurveAction(
+        Project* project,
+        std::vector<Note*> affectedNotes,
+        std::vector<std::vector<float>> oldCurves,
+        std::vector<std::vector<float>> newCurves,
+        std::function<void(int, int)> onRangeChanged = nullptr)
+        : project(project),
+          notes(std::move(affectedNotes)),
+          oldCurves(std::move(oldCurves)),
+          newCurves(std::move(newCurves)),
+          onRangeChanged(std::move(onRangeChanged)) {}
+
+    void undo() override
+    {
+        applyCurves(oldCurves);
+    }
+
+    void redo() override
+    {
+        applyCurves(newCurves);
+    }
+
+    juce::String getName() const override { return "Apply Pitch Filter"; }
+
+private:
+    void applyCurves(const std::vector<std::vector<float>>& curves)
+    {
+        for (size_t i = 0; i < notes.size(); ++i)
+        {
+            if (notes[i] && i < curves.size())
+            {
+                notes[i]->setOriginalDeltaPitch(curves[i]);
+                notes[i]->markDirty();
+                notes[i]->markSynthDirty();
+            }
+        }
+
+        if (project)
+        {
+            const auto dependentNotes =
+                PitchCurveProcessor::collectDependentNotes(*project, notes);
+            PitchCurveProcessor::rebuildDeltaForNotes(*project, dependentNotes);
+
+            if (!dependentNotes.empty())
+            {
+                int minFrame = std::numeric_limits<int>::max();
+                int maxFrame = std::numeric_limits<int>::min();
+                for (const auto* note : dependentNotes)
+                {
+                    minFrame = std::min(minFrame, note->getStartFrame());
+                    maxFrame = std::max(maxFrame, note->getEndFrame());
+                }
+                project->setF0DirtyRange(minFrame, maxFrame);
+
+                if (onRangeChanged)
+                    onRangeChanged(minFrame, maxFrame);
+            }
+        }
+    }
+
+    Project* project;
+    std::vector<Note*> notes;
+    std::vector<std::vector<float>> oldCurves;
+    std::vector<std::vector<float>> newCurves;
+    std::function<void(int, int)> onRangeChanged;
+};

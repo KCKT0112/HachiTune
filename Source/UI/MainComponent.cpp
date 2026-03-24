@@ -1,13 +1,16 @@
 #include "MainComponent.h"
+#include "Dialogs/PitchFilterDebugWindow.h"
 #include "Main/ExportHelper.h"
 #include "../Audio/RealtimePitchProcessor.h"
 #include "../Audio/IO/MidiExporter.h"
 #include "../Models/ProjectSerializer.h"
 #include "../Utils/AppLogger.h"
 #include "../Utils/Constants.h"
+#include "../Utils/CurveResampler.h"
 #include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
 #include "../Utils/PlatformPaths.h"
+#include "../Utils/PitchToolOperations.h"
 #include "../Utils/SHA256Utils.h"
 #include "../Utils/UI/WindowSizing.h"
 #include <atomic>
@@ -15,6 +18,80 @@
 #include <iostream>
 #include <optional>
 #include <thread>
+
+namespace {
+
+std::vector<float> captureNoteDebugCurve(Project* project, Note* note) {
+  if (!project || !note || note->isRest()) {
+    return {};
+  }
+
+  const int durationFrames = note->getDurationFrames();
+  if (durationFrames <= 0) {
+    return {};
+  }
+
+  const auto& storedCurve = note->hasOriginalDeltaPitch()
+                                ? note->getOriginalDeltaPitch()
+                                : note->getDeltaPitch();
+  if (!storedCurve.empty()) {
+    if (static_cast<int>(storedCurve.size()) == durationFrames) {
+      return storedCurve;
+    }
+    return CurveResampler::resampleLinear(storedCurve, durationFrames);
+  }
+
+  const auto& denseDelta = project->getAudioData().deltaPitch;
+  std::vector<float> curve(static_cast<size_t>(durationFrames), 0.0f);
+  for (int i = 0; i < durationFrames; ++i) {
+    const int globalFrame = note->getStartFrame() + i;
+    if (globalFrame >= 0 &&
+        globalFrame < static_cast<int>(denseDelta.size())) {
+      curve[static_cast<size_t>(i)] =
+          denseDelta[static_cast<size_t>(globalFrame)];
+    }
+  }
+  return PitchToolOperations::applyNoteLocalTransformations(curve, *note);
+}
+
+float computePitchFilterFrameRateHz(Project* project) {
+  const float sampleRate =
+      project != nullptr && project->getAudioData().sampleRate > 0
+          ? static_cast<float>(project->getAudioData().sampleRate)
+          : static_cast<float>(SAMPLE_RATE);
+  return sampleRate / static_cast<float>(HOP_SIZE);
+}
+
+FourierPitchFilter::FilterResult buildPitchFilterDebugResult(
+    Project* project,
+    const Note& note,
+    const std::vector<float>& curve) {
+  const float frameRateHz = computePitchFilterFrameRateHz(project);
+  const float lowpassHz =
+      note.getLowPassFilterStrength() > 0.0001f
+          ? FourierPitchFilter::lowpassStrengthToCutoffHz(
+                note.getLowPassFilterStrength(), frameRateHz)
+          : frameRateHz * 0.5f;
+  const float highpassHz =
+      note.getHighPassFilterStrength() > 0.0001f
+          ? FourierPitchFilter::highpassStrengthToCutoffHz(
+                note.getHighPassFilterStrength(), frameRateHz)
+          : 0.0f;
+  return FourierPitchFilter::filterPitchCurve(curve, lowpassHz, highpassHz,
+                                              frameRateHz);
+}
+
+juce::String describePitchFilterNote(const Note* note) {
+  if (note == nullptr) {
+    return "No note selected";
+  }
+
+  return "Frames " + juce::String(note->getStartFrame()) + "-" +
+         juce::String(note->getEndFrame()) + "  |  MIDI " +
+         juce::String(note->getAdjustedMidiNote(), 2);
+}
+
+}  // namespace
 
 MainComponent::MainComponent(bool enableAudioDevice)
     : enableAudioDeviceFlag(enableAudioDevice), pianoRollView(pianoRoll)
@@ -176,6 +253,12 @@ MainComponent::MainComponent(bool enableAudioDevice)
   { seek(time); };
   pianoRoll.onNoteSelected = [this](Note *note)
   { onNoteSelected(note); };
+  pianoRoll.onPitchFilterPreviewChanged =
+      [this](Note* note, const std::vector<float>& originalCurve,
+             const FourierPitchFilter::FilterResult& result)
+  {
+    showPitchFilterDebugPreview(note, originalCurve, result);
+  };
   pianoRoll.onPitchEdited = [this]()
   { onPitchEdited(); };
   pianoRoll.onPitchEditFinished = [this]()
@@ -375,6 +458,7 @@ bool MainComponent::isInferenceBusy() const
 
 MainComponent::~MainComponent()
 {
+  pitchFilterDebugWindow.reset();
 #if JUCE_MAC
   juce::MenuBarModel::setMacMainMenu(nullptr);
 #else
@@ -1242,6 +1326,59 @@ void MainComponent::resynthesizeIncremental()
 void MainComponent::onNoteSelected(Note *note)
 {
   parameterPanel.setSelectedNote(note);
+  updatePitchFilterDebugWindow(note);
+}
+
+void MainComponent::openPitchFilterDebugWindow()
+{
+  if (!pitchFilterDebugWindow)
+    pitchFilterDebugWindow = std::make_unique<PitchFilterDebugWindow>();
+
+  const auto selectedNotes = pianoRoll.getSelectedNotes();
+  if (selectedNotes.empty())
+  {
+    pitchFilterDebugWindow->clearData();
+  }
+  else
+  {
+    updatePitchFilterDebugWindow(selectedNotes.front());
+  }
+  pitchFilterDebugWindow->present();
+}
+
+void MainComponent::updatePitchFilterDebugWindow(Note* note)
+{
+  if (!pitchFilterDebugWindow)
+    return;
+
+  if (note == nullptr || getProject() == nullptr)
+  {
+    pitchFilterDebugWindow->clearData();
+    return;
+  }
+
+  auto originalCurve = captureNoteDebugCurve(getProject(), note);
+  showPitchFilterDebugPreview(
+      note, originalCurve,
+      buildPitchFilterDebugResult(getProject(), *note, originalCurve));
+}
+
+void MainComponent::showPitchFilterDebugPreview(
+    Note* note,
+    const std::vector<float>& originalCurve,
+    const FourierPitchFilter::FilterResult& result)
+{
+  if (!pitchFilterDebugWindow)
+    return;
+
+  if (note == nullptr)
+  {
+    pitchFilterDebugWindow->clearData();
+    return;
+  }
+
+  pitchFilterDebugWindow->showDebugData(describePitchFilterNote(note),
+                                        originalCurve, result);
 }
 
 void MainComponent::onPitchEdited()
@@ -1471,6 +1608,12 @@ void MainComponent::showSettings()
       }
       pianoRoll.setShowPitchToolOnMouseMove(show);
       pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()
+        ->onOpenPitchFilterDebugWindowRequested =
+        [this]()
+    {
+      openPitchFilterDebugWindow();
     };
   }
 

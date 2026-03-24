@@ -94,6 +94,10 @@ public:
     void setDeltaScale(float scale) { deltaScale = scale; }
     float getDeltaOffset() const { return deltaOffset; }
     void setDeltaOffset(float offset) { deltaOffset = offset; }
+    float getHighPassFilterStrength() const { return highPassFilterStrength; }
+    void setHighPassFilterStrength(float strength) { highPassFilterStrength = strength; }
+    float getLowPassFilterStrength() const { return lowPassFilterStrength; }
+    void setLowPassFilterStrength(float strength) { lowPassFilterStrength = strength; }
 
     // Vibrato
     bool isVibratoEnabled() const { return vibratoEnabled; }
@@ -239,6 +243,8 @@ private:
     // Post-transformation scale/offset from delta control handles
     float deltaScale = 1.0f;        // Applied after all other transformations (1.0=unchanged)
     float deltaOffset = 0.0f;       // Added after scale (0.0=unchanged)
+    float highPassFilterStrength = 0.0f;  // 0..1, applied non-destructively to note-local delta
+    float lowPassFilterStrength = 0.0f;   // 0..1, applied non-destructively to note-local delta
 
     bool vibratoEnabled = false;
     float vibratoRateHz = 5.0f;

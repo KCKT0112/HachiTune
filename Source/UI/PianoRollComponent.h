@@ -220,6 +220,10 @@ public:
   std::function<void(Note *)> onNoteSelected;
   std::function<void()> onPitchEdited;
   std::function<void()> onPitchEditFinished; // Called when dragging ends
+  std::function<void(Note*,
+                     const std::vector<float>&,
+                     const FourierPitchFilter::FilterResult&)>
+      onPitchFilterPreviewChanged;
   std::function<void()> onCursorMoved;
   std::function<void(double)> onSeek;
   std::function<void(float)> onZoomChanged;

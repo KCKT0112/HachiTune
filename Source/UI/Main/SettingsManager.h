@@ -73,6 +73,10 @@ public:
   {
     showPitchToolOnMouseMove = show;
   }
+  void setShowPitchFilterDebugWindow(bool show)
+  {
+    showPitchFilterDebugWindow = show;
+  }
   bool getShowDeltaPitch() const { return showDeltaPitch; }
   bool getShowBasePitch() const { return showBasePitch; }
   bool getShowSegmentsDebug() const { return showSegmentsDebug; }
@@ -86,6 +90,10 @@ public:
   bool getShowPitchToolOnMouseMove() const
   {
     return showPitchToolOnMouseMove;
+  }
+  bool getShowPitchFilterDebugWindow() const
+  {
+    return showPitchFilterDebugWindow;
   }
 
   // Callbacks
@@ -117,6 +125,7 @@ private:
   bool showActualF0Debug = false;
   bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;
+  bool showPitchFilterDebugWindow = false;
   bool followSystemAudioOutput = true;
   juce::String preferredAudioOutputDevice;
 
