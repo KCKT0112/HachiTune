@@ -633,7 +633,7 @@ endforeach()
 
 if(GAME_MODELS_MISSING)
     message(STATUS "GAME models not found, downloading...")
-    set(GAME_ZIP_URL "https://github.com/openvpi/GAME/releases/download/v1.0.2/GAME-1.0-small-onnx.zip")
+    set(GAME_ZIP_URL "https://github.com/openvpi/GAME/releases/download/v1.0.3/GAME-1.0.3-small-onnx.zip")
     set(GAME_ZIP_PATH "${CMAKE_BINARY_DIR}/GAME-1.0-small-onnx.zip")
     set(GAME_EXTRACT_DIR "${CMAKE_BINARY_DIR}/_game_extract")
 
