@@ -4,6 +4,19 @@
 
 namespace ExportHelper {
 
+namespace
+{
+juce::String normalizeExtension(juce::String extension)
+{
+  extension = extension.trim().toLowerCase();
+
+  while (extension.startsWithChar('.'))
+    extension = extension.substring(1);
+
+  return extension;
+}
+}
+
 juce::String getFormatDisplayName(ExportFormat format) {
   switch (format) {
   case ExportFormat::wav:
@@ -125,14 +138,15 @@ int chooseQualityIndex(const juce::StringArray &options, int targetKbps) {
 }
 
 juce::AudioFormat *findFormatForExtension(juce::AudioFormatManager &manager,
-                                           const juce::String &extension) {
+                                          const juce::String &extension) {
+  const auto normalizedTarget = normalizeExtension(extension);
   for (int i = 0; i < manager.getNumKnownFormats(); ++i) {
     auto *fmt = manager.getKnownFormat(i);
     if (!fmt)
       continue;
     auto exts = fmt->getFileExtensions();
     for (const auto &ext : exts) {
-      if (ext.equalsIgnoreCase(extension))
+      if (normalizeExtension(ext) == normalizedTarget)
         return fmt;
     }
   }
