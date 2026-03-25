@@ -201,6 +201,10 @@ PianoRollComponent::PianoRollComponent()
   noteSplitter->onNoteSplit = [this]()
   {
     invalidateBasePitchCache();
+    if (onPitchEdited)
+      onPitchEdited();
+    if (onPitchEditFinished)
+      onPitchEditFinished();
     repaint();
   };
 
