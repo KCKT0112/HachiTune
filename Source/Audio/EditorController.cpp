@@ -307,7 +307,7 @@ void EditorController::loadAudioFileAsync(
     }
 
     if (srcSampleRate != SAMPLE_RATE) {
-      updateProgress(0.18, "Resampling...");
+      updateProgress(0.18, TR("progress.resampling"));
       const double ratio = static_cast<double>(srcSampleRate) / SAMPLE_RATE;
       const int newNumSamples = static_cast<int>(numSamples / ratio);
 
@@ -330,7 +330,7 @@ void EditorController::loadAudioFileAsync(
       buffer = std::move(resampledBuffer);
     }
 
-    updateProgress(0.22, "Preparing project...");
+    updateProgress(0.22, TR("progress.preparing_project"));
     auto newProject = std::make_unique<Project>();
     newProject->setFilePath(file);
     newProject->setAudioSha256(SHA256Utils::fileSHA256(file));
@@ -355,7 +355,7 @@ void EditorController::loadAudioFileAsync(
       return;
     }
 
-    updateProgress(0.95, "Finalizing...");
+    updateProgress(0.95, TR("progress.finalizing"));
 
     // Store pristine original waveform in AudioData for blend-based synthesis
     audioData.originalWaveform.makeCopyOf(audioData.waveform);
@@ -687,14 +687,14 @@ void EditorController::analyzeAudio(
   const float *samples = audioData.waveform.getReadPointer(0);
   int numSamples = audioData.waveform.getNumSamples();
 
-  onProgress(0.35, "Computing mel spectrogram...");
+  onProgress(0.35, TR("progress.computing_mel"));
   MelSpectrogram melComputer(audioData.sampleRate, N_FFT, HOP_SIZE, NUM_MELS,
                              FMIN, FMAX);
   audioData.melSpectrogram = melComputer.compute(samples, numSamples);
 
   int targetFrames = static_cast<int>(audioData.melSpectrogram.size());
 
-  onProgress(0.55, "Extracting pitch (F0)...");
+  onProgress(0.55, TR("progress.extracting_f0"));
 
   if (pitchDetectorType == PitchDetectorType::RMVPE)
   {
@@ -845,7 +845,7 @@ void EditorController::analyzeAudio(
       }
     }
 
-    onProgress(0.65, "Smoothing pitch curve...");
+    onProgress(0.65, TR("progress.smoothing_pitch"));
     audioData.f0 = F0Smoother::smoothF0(audioData.f0, audioData.voicedMask);
     audioData.f0 = PitchCurveProcessor::interpolateWithUvMask(
         audioData.f0, audioData.voicedMask);
@@ -859,7 +859,7 @@ void EditorController::analyzeAudio(
   if (hnsepModel && hnsepModel->isLoaded() &&
       audioData.waveform.getNumSamples() > 0)
   {
-    onProgress(0.70, "Separating harmonic/noise...");
+    onProgress(0.70, TR("progress.separating_harmonic_noise"));
     const float *samples = audioData.waveform.getReadPointer(0);
     const int numSamples = audioData.waveform.getNumSamples();
 
@@ -871,7 +871,8 @@ void EditorController::analyzeAudio(
         [&onProgress](double p)
         {
           // Map hnsep progress 0..1 into overall progress 0.70..0.75
-          onProgress(0.70 + p * 0.05, "Separating harmonic/noise...");
+          onProgress(0.70 + p * 0.05,
+                     TR("progress.separating_harmonic_noise"));
         });
 
     if (ok)
@@ -925,7 +926,7 @@ void EditorController::analyzeAudio(
     }
   }
 
-  onProgress(0.90, "Segmenting notes...");
+  onProgress(0.90, TR("progress.segmenting_notes"));
   segmentIntoNotes(targetProject);
 
   PitchCurveProcessor::rebuildCurvesFromSource(targetProject, audioData.f0);

@@ -41,6 +41,7 @@ public:
   void mouseMove(const juce::MouseEvent &e) override;
   void mouseWheelMove(const juce::MouseEvent &e,
                       const juce::MouseWheelDetails &wheel) override;
+  void refreshLocalizedText();
 
   // Data binding
   void setProject(Project *proj) { project = proj; repaint(); }

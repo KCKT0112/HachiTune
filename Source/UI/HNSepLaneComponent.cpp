@@ -112,6 +112,34 @@ HNSepLaneComponent::HNSepLaneComponent() {
 
   setupEnergyToggle(voicingEnergyVisibilityToggle);
   setupEnergyToggle(breathEnergyVisibilityToggle);
+
+  refreshLocalizedText();
+}
+
+void HNSepLaneComponent::refreshLocalizedText() {
+  lanes[0].label = TR("hnsep.lane.tension");
+  lanes[1].label = TR("hnsep.lane.voicing");
+  lanes[2].label = TR("hnsep.lane.breath");
+
+  auto refreshEnergyDropdown = [](juce::ComboBox& dropdown, int defaultId) {
+    const int selectedId = dropdown.getSelectedId() > 0 ? dropdown.getSelectedId()
+                                                        : defaultId;
+    dropdown.clear(juce::dontSendNotification);
+    dropdown.addItem(TR("hnsep.energy.max.-60"), 1);
+    dropdown.addItem(TR("hnsep.energy.max.-45"), 2);
+    dropdown.addItem(TR("hnsep.energy.max.-30"), 3);
+    dropdown.addItem(TR("hnsep.energy.max.-12"), 4);
+    dropdown.addItem(TR("hnsep.energy.max.-3"), 5);
+    dropdown.setSelectedId(selectedId, juce::dontSendNotification);
+  };
+
+  refreshEnergyDropdown(voicingEnergyDropdown, 5);
+  refreshEnergyDropdown(breathEnergyDropdown, 4);
+  voicingEnergyVisibilityToggle.setButtonText(TR("hnsep.energy.show"));
+  breathEnergyVisibilityToggle.setButtonText(TR("hnsep.energy.show"));
+
+  updateControlBounds();
+  repaint();
 }
 
 void HNSepLaneComponent::paint(juce::Graphics& g) {

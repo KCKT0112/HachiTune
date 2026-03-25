@@ -2,6 +2,7 @@
 #include "../Utils/BasePitchCurve.h"
 #include "../Utils/CurveResampler.h"
 #include "../Utils/Constants.h"
+#include "../Utils/Localization.h"
 #include "../Utils/UI/TimecodeFont.h"
 #include "../Utils/UI/Theme.h"
 #include "../Utils/PitchCurveProcessor.h"
@@ -915,7 +916,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
         g, pixelsPerSecond, debugInfo.synthesisStartFrame,
         debugInfo.synthesisEndFrame, visibleTop, visibleHeight, visibleStartX,
         visibleEndX, juce::Colours::deepskyblue.withAlpha(0.10f),
-        juce::Colours::deepskyblue.withAlpha(0.78f), "Resynth");
+        juce::Colours::deepskyblue.withAlpha(0.78f), TR("debug.resynth"));
   }
 
   if (showDirtyRangeDebug && debugInfo.hasDirtyRange())
@@ -924,7 +925,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
         g, pixelsPerSecond, debugInfo.dirtyStartFrame, debugInfo.dirtyEndFrame,
         visibleTop, visibleHeight, visibleStartX, visibleEndX,
         juce::Colours::red.withAlpha(0.08f),
-        juce::Colours::orangered.withAlpha(0.78f), "Dirty");
+        juce::Colours::orangered.withAlpha(0.78f), TR("debug.dirty"));
   }
 
   std::vector<DebugLane> lanes;
@@ -935,7 +936,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
     if (!debugInfo.dirtyNoteRanges.empty())
     {
       DebugLane lane;
-      lane.label = "Notes";
+      lane.label = TR("debug.notes");
       for (const auto &[startFrame, endFrame] : debugInfo.dirtyNoteRanges)
         appendDebugLaneSegment(
             lane.segments, startFrame, endFrame,
@@ -947,7 +948,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
     if (debugInfo.f0DirtyEndFrame > debugInfo.f0DirtyStartFrame)
     {
       DebugLane lane;
-      lane.label = "F0";
+      lane.label = TR("debug.f0");
       appendDebugLaneSegment(lane.segments, debugInfo.f0DirtyStartFrame,
                              debugInfo.f0DirtyEndFrame,
                              juce::Colours::hotpink.withAlpha(0.55f),
@@ -958,7 +959,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
     if (debugInfo.paramDirtyEndFrame > debugInfo.paramDirtyStartFrame)
     {
       DebugLane lane;
-      lane.label = "Param";
+      lane.label = TR("debug.param");
       appendDebugLaneSegment(lane.segments, debugInfo.paramDirtyStartFrame,
                              debugInfo.paramDirtyEndFrame,
                              juce::Colours::gold.withAlpha(0.55f),
@@ -970,7 +971,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
   if (showVadDebug)
   {
     DebugLane lane;
-    lane.label = "VAD";
+    lane.label = TR("debug.vad");
     lane.segments = collectBooleanMaskSegments(
         visibleRange.startFrame, visibleRange.endFrame,
         [&](int frame)
@@ -987,7 +988,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
   if (showVoicedMaskDebug)
   {
     DebugLane lane;
-    lane.label = "Voice";
+    lane.label = TR("debug.voiced");
     lane.segments = collectBooleanMaskSegments(
         visibleRange.startFrame, visibleRange.endFrame,
         [&](int frame)
@@ -1044,7 +1045,7 @@ void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
     };
 
     DebugLane lane;
-    lane.label = "Blend";
+    lane.label = TR("debug.blend");
 
     int runStart = -1;
     int runState = -1;

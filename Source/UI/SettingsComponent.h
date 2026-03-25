@@ -132,6 +132,9 @@ private:
   void setActiveTab(SettingsTab tab);
   void updateTabButtonStyles();
   void updateTabVisibility();
+  void refreshLocalizedText();
+  void setInfoLabelTextKey(const juce::String &key);
+  void updateInfoLabelText();
   bool shouldShowGpuDeviceList() const;
 
   bool pluginMode = false;
@@ -181,6 +184,7 @@ private:
   juce::Slider pitchFilterContextRangeSlider;
 
   juce::Label infoLabel;
+  juce::String infoLabelTextKey;
 
   // Audio device settings (standalone mode only)
   juce::Label audioSectionLabel;

@@ -21,6 +21,10 @@
 
 namespace {
 
+juce::String formatUiPath(const juce::String& path) {
+  return path.replaceCharacter('\\', '/');
+}
+
 std::vector<float> captureNoteDebugCurve(Project* project, Note* note) {
   if (!project || !note || note->isRest()) {
     return {};
@@ -814,8 +818,9 @@ void MainComponent::openRecentFile(const juce::File &file)
 {
   if (!file.existsAsFile())
   {
-    StyledMessageBox::show(this, "Recent file missing",
-                           "File not found:\n" + file.getFullPathName(),
+    StyledMessageBox::show(this, TR("dialog.recent_file_missing"),
+                           TR("dialog.file_not_found") + "\n" +
+                               formatUiPath(file.getFullPathName()),
                            StyledMessageBox::WarningIcon);
     recentFiles.removeString(file.getFullPathName());
     if (settingsManager)
@@ -1556,6 +1561,18 @@ void MainComponent::showSettings()
     {
       if (settingsOverlay)
         settingsOverlay->setVisible(false);
+    };
+    settingsOverlay->getSettingsComponent()->onLanguageChanged = [this]()
+    {
+      refreshRecentFilesMenu();
+      if (commandManager)
+        commandManager->commandStatusChanged();
+      pianoRollView.getHNSepLane().refreshLocalizedText();
+      toolbar.repaint();
+      workspace.repaint();
+      pianoRoll.repaint();
+      parameterPanel.repaint();
+      repaint();
     };
 
     settingsOverlay->getSettingsComponent()->onSettingsChanged = [this]()

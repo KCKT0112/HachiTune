@@ -1,4 +1,5 @@
 #include "FourierFilterDialog.h"
+#include "../../Utils/Localization.h"
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -35,18 +36,20 @@ FourierFilterDialog::FourierFilterDialog(
   addAndMakeVisible(highpassSlider);
 
   // Labels
-  lowpassLabel.setText("Lowpass (Hz):", juce::dontSendNotification);
+  lowpassLabel.setText(TR("fourier.lowpass_hz"), juce::dontSendNotification);
   lowpassLabel.attachToComponent(&lowpassSlider, true);
   addAndMakeVisible(lowpassLabel);
 
-  highpassLabel.setText("Highpass (Hz):", juce::dontSendNotification);
+  highpassLabel.setText(TR("fourier.highpass_hz"), juce::dontSendNotification);
   highpassLabel.attachToComponent(&highpassSlider, true);
   addAndMakeVisible(highpassLabel);
 
   // Buttons
+  okButton.setButtonText(TR("common.apply"));
   okButton.onClick = [this]() { onOkClicked(); };
   addAndMakeVisible(okButton);
 
+  cancelButton.setButtonText(TR("common.cancel"));
   cancelButton.onClick = [this]() { onCancelClicked(); };
   addAndMakeVisible(cancelButton);
 
