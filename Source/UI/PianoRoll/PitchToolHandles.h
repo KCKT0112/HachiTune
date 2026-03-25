@@ -48,7 +48,8 @@ public:
    * Hit-test for mouse interaction.
    * @param worldX Mouse X in world coordinates
    * @param worldY Mouse Y in world coordinates
-   * @param tolerance Hit-test radius in pixels (default 12.0)
+   * @param tolerance Outward hit extent in pixels for the handle side that
+   *                  faces away from the note box (default 12.0)
    * @return Index of hit handle, or -1 if no hit
    */
   int hitTest(float worldX, float worldY, float tolerance = 12.0f) const;

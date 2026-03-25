@@ -2,6 +2,73 @@
 #include <algorithm>
 #include <limits>
 
+namespace {
+
+constexpr float kInwardHitExtent = PitchToolHandles::handleSize * 0.3f;
+
+juce::Rectangle<float> buildSkewedHitBounds(
+    const PitchToolHandles::Handle& handle,
+    float tolerance) {
+  const auto center = handle.bounds.getCentre();
+  const float outwardExtent =
+      std::max(handle.bounds.getWidth(), tolerance);
+  const float tangentialExtent =
+      std::max(handle.bounds.getWidth() * 0.5f, tolerance * 0.5f);
+
+  float leftExtent = tangentialExtent;
+  float rightExtent = tangentialExtent;
+  float upExtent = tangentialExtent;
+  float downExtent = tangentialExtent;
+
+  switch (handle.type) {
+    case PitchToolHandles::HandleType::TiltLeft:
+      leftExtent = outwardExtent;
+      upExtent = outwardExtent;
+      rightExtent = kInwardHitExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::TiltRight:
+      leftExtent = kInwardHitExtent;
+      upExtent = outwardExtent;
+      rightExtent = outwardExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::HighPassLeft:
+      leftExtent = outwardExtent;
+      upExtent = kInwardHitExtent;
+      rightExtent = kInwardHitExtent;
+      downExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::LowPassRight:
+      leftExtent = kInwardHitExtent;
+      upExtent = kInwardHitExtent;
+      rightExtent = outwardExtent;
+      downExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::SmoothLeft:
+      leftExtent = outwardExtent;
+      rightExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::SmoothRight:
+      leftExtent = kInwardHitExtent;
+      rightExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::ReduceVariance:
+      upExtent = outwardExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::None:
+    default:
+      break;
+  }
+
+  return juce::Rectangle<float>(center.x - leftExtent, center.y - upExtent,
+                                leftExtent + rightExtent,
+                                upExtent + downExtent);
+}
+
+}  // namespace
+
 PitchToolHandles::PitchToolHandles() {
   // Initialize (currently empty, but reserve space)
   handles.reserve(24);  // Typical max handles for multi-note selection
@@ -182,17 +249,19 @@ void PitchToolHandles::draw(juce::Graphics& g) const {
 int PitchToolHandles::hitTest(float worldX, float worldY, float tolerance) const {
   int bestIndex = -1;
   float bestDistance = std::numeric_limits<float>::max();
+  const auto point = juce::Point<float>(worldX, worldY);
 
   for (int i = 0; i < static_cast<int>(handles.size()); ++i) {
-    auto center = handles[i].bounds.getCentre();
-    float distance = center.getDistanceFrom(juce::Point<float>(worldX, worldY));
+    const auto hitBounds = buildSkewedHitBounds(handles[i], tolerance);
+    if (!hitBounds.contains(point))
+      continue;
 
-    if (distance <= std::max(tolerance, handleSize * 0.9f)) {
-      if (distance < bestDistance - 0.001f ||
-          (std::abs(distance - bestDistance) < 0.001f && i > bestIndex)) {
-        bestDistance = distance;
-        bestIndex = i;
-      }
+    const auto center = handles[i].bounds.getCentre();
+    const float distance = center.getDistanceFrom(point);
+    if (distance < bestDistance - 0.001f ||
+        (std::abs(distance - bestDistance) < 0.001f && i > bestIndex)) {
+      bestDistance = distance;
+      bestIndex = i;
     }
   }
 
