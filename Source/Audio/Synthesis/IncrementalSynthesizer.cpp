@@ -26,7 +26,9 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
     return {dirtyStart, dirtyEnd};
 
   auto &voicedMask = project->getAudioData().voicedMask;
+  auto &vadMask = project->getAudioData().vadMask;
   const int totalFrames = static_cast<int>(voicedMask.size());
+  const int totalVadFrames = static_cast<int>(vadMask.size());
   if (totalFrames == 0)
     return {dirtyStart, dirtyEnd};
 
@@ -40,15 +42,22 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
   // together; this avoids junction phase resets between neighboring notes.
   constexpr int kGapBridgeFrames = 16;
 
-  auto isVoiced = [&](int idx) -> bool {
-    return idx >= 0 && idx < totalFrames && static_cast<bool>(voicedMask[idx]);
+  auto isSynthesisActive = [&](int idx) -> bool {
+    const bool voiced =
+        idx >= 0 && idx < totalFrames && static_cast<bool>(voicedMask[idx]);
+    const bool vad =
+        idx >= 0 && idx < totalVadFrames && static_cast<bool>(vadMask[idx]);
+    return voiced || vad;
   };
 
-  // Expand backward to include neighboring voiced segments across short gaps.
+  // Expand backward to include neighboring voiced / energetic UV segments
+  // across short gaps. VAD-positive consonant heads and tails need to remain
+  // inside the resynthesis context even when the vocoder later routes them
+  // back to original audio via the blend mask.
   int start = dirtyStart;
   int backGap = 0;
   while (start > 0) {
-    if (isVoiced(start - 1)) {
+    if (isSynthesisActive(start - 1)) {
       --start;
       backGap = 0;
       continue;
@@ -62,11 +71,12 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
   }
   start = std::max(0, start - kPadFrames);
 
-  // Expand forward to include neighboring voiced segments across short gaps.
+  // Expand forward to include neighboring voiced / energetic UV segments
+  // across short gaps.
   int end = dirtyEnd;
   int fwdGap = 0;
   while (end < totalFrames) {
-    if (isVoiced(end)) {
+    if (isSynthesisActive(end)) {
       ++end;
       fwdGap = 0;
       continue;
@@ -89,9 +99,12 @@ IncrementalSynthesizer::computeSynthesisRange(int dirtyStart, int dirtyEnd) {
 // ---------------------------------------------------------------------------
 std::vector<float>
 IncrementalSynthesizer::generateBlendMask(int startFrame, int endFrame,
-                                          int hopSize) {
+                                          int hopSize,
+                                          std::vector<float> *frameMaskOut) {
   auto &voicedMask = project->getAudioData().voicedMask;
+  auto &vadMask = project->getAudioData().vadMask;
   const int totalFrames = static_cast<int>(voicedMask.size());
+  const int totalVadFrames = static_cast<int>(vadMask.size());
   const int numFrames = endFrame - startFrame;
   const int numSamples = numFrames * hopSize;
 
@@ -100,8 +113,13 @@ IncrementalSynthesizer::generateBlendMask(int startFrame, int endFrame,
   // orig/synth combing artifacts at note junctions.
   std::vector<float> frameMask(numFrames, 1.0f);
 
-  // Keep original audio only for long unvoiced runs (e.g. clear breaths/silence),
-  // not for short UV gaps between notes.
+  // Keep original audio for:
+  //   1) long unvoiced runs, and
+  //   2) short UV runs that still carry energy (vadMask = true), such as
+  //      consonant heads/tails that were attached to nearby notes.
+  //
+  // Those energetic UV frames are the ones that can turn into local silence if
+  // we force them through the vocoder during a pitch edit.
   constexpr int kKeepOriginalUnvoicedFrames = 24;
   if (numFrames > 0 && totalFrames > 0) {
     int i = 0;
@@ -115,22 +133,28 @@ IncrementalSynthesizer::generateBlendMask(int startFrame, int endFrame,
       }
 
       const int runStart = i;
+      bool hasVadEnergy = false;
       while (i < numFrames) {
         const int g = startFrame + i;
         const bool v =
             g >= 0 && g < totalFrames && static_cast<bool>(voicedMask[g]);
         if (v)
           break;
+        if (g >= 0 && g < totalVadFrames && static_cast<bool>(vadMask[g]))
+          hasVadEnergy = true;
         ++i;
       }
       const int runEnd = i;
       const int runLen = runEnd - runStart;
-      if (runLen >= kKeepOriginalUnvoicedFrames) {
+      if (hasVadEnergy || runLen >= kKeepOriginalUnvoicedFrames) {
         for (int k = runStart; k < runEnd; ++k)
           frameMask[k] = 0.0f;
       }
     }
   }
+
+  if (frameMaskOut != nullptr)
+    *frameMaskOut = frameMask;
 
   // Step 2: expand to per-sample (sample-and-hold)
   std::vector<float> mask(numSamples, 0.0f);
@@ -207,15 +231,40 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
   endFrame =
       std::min(static_cast<int>(audioData.melSpectrogram.size()), endFrame);
 
+  auto &debugInfo = audioData.incrementalDebug;
+  debugInfo.clear();
+  debugInfo.dirtyStartFrame = dirtyStart;
+  debugInfo.dirtyEndFrame = dirtyEnd;
+
+  const auto [f0DirtyStart, f0DirtyEnd] = project->getF0DirtyRange();
+  debugInfo.f0DirtyStartFrame = f0DirtyStart;
+  debugInfo.f0DirtyEndFrame = f0DirtyEnd;
+
+  const auto [paramDirtyStart, paramDirtyEnd] = project->getParamDirtyRange();
+  debugInfo.paramDirtyStartFrame = paramDirtyStart;
+  debugInfo.paramDirtyEndFrame = paramDirtyEnd;
+
+  for (const auto &note : project->getNotes()) {
+    if (note.isDirty())
+      debugInfo.dirtyNoteRanges.emplace_back(note.getStartFrame(),
+                                             note.getEndFrame());
+  }
+
   if (startFrame >= endFrame) {
     if (onComplete)
       onComplete(false);
     return;
   }
 
+  debugInfo.synthesisStartFrame = startFrame;
+  debugInfo.synthesisEndFrame = endFrame;
+
   // Generate blend mask before async call (voicedMask is stable here)
   int hopSize = vocoder->getHopSize();
-  std::vector<float> blendMask = generateBlendMask(startFrame, endFrame, hopSize);
+  std::vector<float> blendFrameMask;
+  std::vector<float> blendMask =
+      generateBlendMask(startFrame, endFrame, hopSize, &blendFrameMask);
+  debugInfo.blendMaskFrames = std::move(blendFrameMask);
 
   // Early exit: if blend mask is all-zero, nothing to synthesize
   bool hasVoiced = std::any_of(blendMask.begin(), blendMask.end(),
@@ -382,6 +431,19 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
 
           auto &audioData = capturedProject->getAudioData();
           int totalSamples = audioData.waveform.getNumSamples();
+          const float *currentWavePtr =
+              (audioData.waveform.getNumChannels() > 0 && totalSamples > 0)
+                  ? audioData.waveform.getReadPointer(0)
+                  : nullptr;
+          const auto &origWaveform =
+              audioData.originalWaveform.getNumSamples() > 0
+                  ? audioData.originalWaveform
+                  : audioData.waveform;
+          const int origSamples = origWaveform.getNumSamples();
+          const float *origWavePtr =
+              (origWaveform.getNumChannels() > 0 && origSamples > 0)
+                  ? origWaveform.getReadPointer(0)
+                  : nullptr;
           int startSample = capturedStartFrame * hopSize;
           int expectedSamples =
               (capturedEndFrame - capturedStartFrame) * hopSize;
@@ -470,21 +532,6 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
             if (overlapEnd <= overlapStart)
               continue;
 
-            // Only update notes that overlap the synthesis range and are dirty
-            // (or have no synthWaveform yet).
-            // Also resynthesize notes that overlap the param dirty range,
-            // since parameter curve edits (voicing/breath/tension) affect
-            // the tension-adjusted waveform fed to the vocoder.
-            bool paramDirtyOverlap = false;
-            if (capturedProject->hasParamDirtyRange()) {
-              auto [pStart, pEnd] = capturedProject->getParamDirtyRange();
-              paramDirtyOverlap = (note.getStartFrame() < pEnd &&
-                                   note.getEndFrame() > pStart);
-            }
-            if (!note.isDirty() && !note.isSynthDirty() &&
-                !paramDirtyOverlap && note.hasSynthWaveform())
-              continue;
-
             // Full note range in samples (the "body")
             const int noteStartSample = noteStart * hopSize;
             const int noteEndSample = noteEnd * hopSize;
@@ -508,12 +555,63 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
             // Total synth vector: [preroll | body | postroll]
             const int totalSynthLen = leftMargin + noteSamples + rightMargin;
             std::vector<float> noteSynth(static_cast<size_t>(totalSynthLen), 0.0f);
+            std::vector<bool> noteSynthFilled(static_cast<size_t>(totalSynthLen),
+                                              false);
 
             // Copy from targetSegment: the extended region
             // [noteStartSample - leftMargin, noteEndSample + rightMargin) in global coords
             // maps to targetSegment[(noteStartSample - leftMargin - targetStartSample) ..]
             const int extGlobalStart = noteStartSample - leftMargin;
             const int extLocalSrc = extGlobalStart - targetStartSample;
+            const int srcStartSample = note.getSrcStartFrame() * hopSize;
+            const int srcEndSample = note.getSrcEndFrame() * hopSize;
+
+            // Seed from the currently audible waveform so a first-time partial
+            // resynthesis does not leave uncovered regions as zeros.
+            if (currentWavePtr != nullptr) {
+              const int seededStart = std::max(0, extGlobalStart);
+              const int seededEnd =
+                  std::min(totalSamples, extGlobalStart + totalSynthLen);
+              for (int globalSample = seededStart;
+                   globalSample < seededEnd; ++globalSample) {
+                const int dstIdx = globalSample - extGlobalStart;
+                if (dstIdx >= 0 && dstIdx < totalSynthLen) {
+                  noteSynth[static_cast<size_t>(dstIdx)] =
+                      currentWavePtr[globalSample];
+                  noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                }
+              }
+            }
+
+            // Preserve any previously synthesized samples that fall outside the
+            // newly rendered overlap. Incremental resynthesis often synthesizes
+            // a larger chunk for model context, but that chunk does not always
+            // fully cover every overlapping note body/margin.
+            if (note.hasSynthWaveform()) {
+              const auto &existingSynth = note.getSynthWaveform();
+              const int existingGlobalStart =
+                  noteStartSample - note.getSynthPreroll();
+              const int existingGlobalEnd =
+                  existingGlobalStart +
+                  static_cast<int>(existingSynth.size());
+              const int preservedStart =
+                  std::max(extGlobalStart, existingGlobalStart);
+              const int preservedEnd = std::min(
+                  extGlobalStart + totalSynthLen, existingGlobalEnd);
+
+              for (int globalSample = preservedStart;
+                   globalSample < preservedEnd; ++globalSample) {
+                const int dstIdx = globalSample - extGlobalStart;
+                const int srcIdx = globalSample - existingGlobalStart;
+                if (dstIdx >= 0 && dstIdx < totalSynthLen &&
+                    srcIdx >= 0 &&
+                    srcIdx < static_cast<int>(existingSynth.size())) {
+                  noteSynth[static_cast<size_t>(dstIdx)] =
+                      existingSynth[static_cast<size_t>(srcIdx)];
+                  noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                }
+              }
+            }
 
             // The overlap between [extGlobalStart, noteEndSample+rightMargin) and
             // [capturedStartFrame*hopSize, capturedStartFrame*hopSize + samplesToWrite)
@@ -528,12 +626,88 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
               if (dstIdx >= 0 && dstIdx < totalSynthLen) {
                 noteSynth[static_cast<size_t>(dstIdx)] =
                     targetSegment[static_cast<size_t>(i)];
+                noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
               }
             }
 
-            // For parts of the note body outside the synthesis range, use the
-            // immutable source clip. Segment-level hnsep processing only
-            // rewrites the actively re-synthesized region above.
+            // Fill any still-uncovered samples from immutable source audio.
+            // This covers first-time partial updates where no prior synth cache
+            // exists, including short preroll/postroll margins around the note.
+            if (origWavePtr != nullptr) {
+              const auto &srcClip = note.getSrcClipWaveform();
+              const int srcFrames =
+                  note.getSrcEndFrame() - note.getSrcStartFrame();
+              const int dstFrames = note.getEndFrame() - note.getStartFrame();
+              const int srcClipSamples = static_cast<int>(srcClip.size());
+              const int srcBodySamples =
+                  std::max(0, srcEndSample - srcStartSample);
+
+              for (int dstIdx = 0; dstIdx < totalSynthLen; ++dstIdx) {
+                if (noteSynthFilled[static_cast<size_t>(dstIdx)])
+                  continue;
+
+                if (dstIdx < leftMargin) {
+                  const int srcIdx = srcStartSample - leftMargin + dstIdx;
+                  if (srcIdx >= 0 && srcIdx < origSamples) {
+                    noteSynth[static_cast<size_t>(dstIdx)] = origWavePtr[srcIdx];
+                    noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                  }
+                  continue;
+                }
+
+                if (dstIdx >= leftMargin + noteSamples) {
+                  const int marginOffset = dstIdx - (leftMargin + noteSamples);
+                  const int srcIdx = srcEndSample + marginOffset;
+                  if (srcIdx >= 0 && srcIdx < origSamples) {
+                    noteSynth[static_cast<size_t>(dstIdx)] = origWavePtr[srcIdx];
+                    noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                  }
+                  continue;
+                }
+
+                const int bodyIdx = dstIdx - leftMargin;
+                int srcIdx = -1;
+                if (srcClipSamples > 0) {
+                  if (dstFrames > 0 && srcFrames > 0) {
+                    const float srcPos =
+                        static_cast<float>(bodyIdx) *
+                        static_cast<float>(srcClipSamples) /
+                        static_cast<float>(noteSamples);
+                    srcIdx = static_cast<int>(srcPos);
+                  } else {
+                    srcIdx = bodyIdx;
+                  }
+
+                  if (srcIdx >= 0 && srcIdx < srcClipSamples) {
+                    noteSynth[static_cast<size_t>(dstIdx)] =
+                        srcClip[static_cast<size_t>(srcIdx)];
+                    noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                    continue;
+                  }
+                }
+
+                if (srcBodySamples > 0) {
+                  if (dstFrames > 0 && srcFrames > 0) {
+                    const float srcPos =
+                        static_cast<float>(bodyIdx) *
+                        static_cast<float>(srcBodySamples) /
+                        static_cast<float>(noteSamples);
+                    srcIdx = srcStartSample + static_cast<int>(srcPos);
+                  } else {
+                    srcIdx = srcStartSample + bodyIdx;
+                  }
+                }
+
+                if (srcIdx >= 0 && srcIdx < origSamples) {
+                  noteSynth[static_cast<size_t>(dstIdx)] = origWavePtr[srcIdx];
+                  noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
+                }
+              }
+            }
+
+            // For parts of the note body still uncovered, fall back to the
+            // immutable source clip. Existing synth content already filled
+            // uncovered regions above when available.
             if (note.hasSrcClipWaveform()) {
               const auto &srcClip = note.getSrcClipWaveform();
               const int srcFrames = note.getSrcEndFrame() - note.getSrcStartFrame();
@@ -541,10 +715,10 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
               const int srcSamples = static_cast<int>(srcClip.size());
 
               for (int i = 0; i < noteSamples; ++i) {
-                const int globalSample = noteStartSample + i;
-                const int globalFrame = (globalSample / hopSize);
-                // Skip samples already covered by synthesis
-                if (globalFrame >= overlapStart && globalFrame < overlapEnd)
+                const int dstIdx = leftMargin + i;
+                if (dstIdx < 0 || dstIdx >= totalSynthLen)
+                  continue;
+                if (noteSynthFilled[static_cast<size_t>(dstIdx)])
                   continue;
 
                 // Map destination sample to source sample (handle stretch)
@@ -557,13 +731,15 @@ void IncrementalSynthesizer::synthesizeRegion(ProgressCallback onProgress,
                 }
                 int srcIdx = static_cast<int>(srcPos);
                 if (srcIdx >= 0 && srcIdx < srcSamples) {
-                  noteSynth[static_cast<size_t>(leftMargin + i)] =
+                  noteSynth[static_cast<size_t>(dstIdx)] =
                       srcClip[static_cast<size_t>(srcIdx)];
+                  noteSynthFilled[static_cast<size_t>(dstIdx)] = true;
                 }
               }
             }
 
             note.setSynthWaveform(std::move(noteSynth), leftMargin);
+            note.setSynthPassId(currentJobId);
           }
 
           // Compose the global waveform from per-note synthWaveforms

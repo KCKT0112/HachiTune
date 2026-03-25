@@ -50,6 +50,11 @@ public:
   std::function<void(bool)> onShowSegmentsDebugChanged;
   std::function<void(bool)> onShowGameValuesDebugChanged;
   std::function<void(bool)> onShowUvInterpolationDebugChanged;
+  std::function<void(bool)> onShowVadDebugChanged;
+  std::function<void(bool)> onShowVoicedMaskDebugChanged;
+  std::function<void(bool)> onShowDirtyRangeDebugChanged;
+  std::function<void(bool)> onShowResynthesisRangeDebugChanged;
+  std::function<void(bool)> onShowBlendMaskDebugChanged;
   std::function<void(bool)> onShowActualF0DebugChanged;
   std::function<void(bool)> onShowIdealSmoothingCurveDebugChanged;
   std::function<void(bool)> onShowPitchToolOnMouseMoveChanged;
@@ -112,7 +117,8 @@ private:
   enum class SettingsTab
   {
     General,
-    Audio
+    Audio,
+    Debug
   };
 
   void updateDeviceList();
@@ -135,6 +141,7 @@ private:
 
   juce::Label titleLabel;
   juce::Label generalSectionLabel;
+  juce::Label debugSectionLabel;
 
   juce::Label languageLabel;
   StyledComboBox languageComboBox;
@@ -152,6 +159,16 @@ private:
   juce::ToggleButton gameValuesDebugToggle;
   juce::Label uvInterpolationDebugLabel;
   juce::ToggleButton uvInterpolationDebugToggle;
+  juce::Label vadDebugLabel;
+  juce::ToggleButton vadDebugToggle;
+  juce::Label voicedMaskDebugLabel;
+  juce::ToggleButton voicedMaskDebugToggle;
+  juce::Label dirtyRangeDebugLabel;
+  juce::ToggleButton dirtyRangeDebugToggle;
+  juce::Label resynthesisRangeDebugLabel;
+  juce::ToggleButton resynthesisRangeDebugToggle;
+  juce::Label blendMaskDebugLabel;
+  juce::ToggleButton blendMaskDebugToggle;
   juce::Label actualF0DebugLabel;
   juce::ToggleButton actualF0DebugToggle;
   juce::Label idealSmoothingCurveDebugLabel;
@@ -192,6 +209,11 @@ private:
   bool showSegmentsDebug = false;
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
+  bool showVadDebug = false;
+  bool showVoicedMaskDebug = false;
+  bool showDirtyRangeDebug = false;
+  bool showResynthesisRangeDebug = false;
+  bool showBlendMaskDebug = false;
   bool showActualF0Debug = false;
   bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;
@@ -199,6 +221,7 @@ private:
   SettingsTab activeTab = SettingsTab::General;
   juce::TextButton generalTabButton;
   juce::TextButton audioTabButton;
+  juce::TextButton debugTabButton;
   juce::Rectangle<int> cardBounds;
   juce::Rectangle<int> sidebarBounds;
   juce::Rectangle<int> tabListBounds;

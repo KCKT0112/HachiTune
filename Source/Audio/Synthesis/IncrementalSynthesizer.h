@@ -40,7 +40,8 @@ private:
   /// Generate per-sample blend mask from voicedMask.
   /// 1.0 = use synthesized, 0.0 = use original, smooth ramps at transitions.
   std::vector<float> generateBlendMask(int startFrame, int endFrame,
-                                       int hopSize);
+                                       int hopSize,
+                                       std::vector<float> *frameMaskOut = nullptr);
 
   Vocoder *vocoder = nullptr;
   Project *project = nullptr;

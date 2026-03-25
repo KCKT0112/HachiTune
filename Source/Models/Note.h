@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../JuceHeader.h"
+#include <cstdint>
 #include <vector>
 
 /**
@@ -171,7 +172,7 @@ public:
     void setSynthWaveform(std::vector<float> samples) { synthWaveform = std::move(samples); synthPreroll = 0; synthDirty = false; }
     void setSynthWaveform(std::vector<float> samples, int preroll) { synthWaveform = std::move(samples); synthPreroll = preroll; synthDirty = false; }
     bool hasSynthWaveform() const { return !synthWaveform.empty(); }
-    void clearSynthWaveform() { synthWaveform.clear(); synthPreroll = 0; synthDirty = true; }
+    void clearSynthWaveform() { synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; synthDirty = true; }
 
     // Synth preroll: number of margin samples prepended before noteStart in synthWaveform.
     // synthWaveform[0..synthPreroll) covers audio BEFORE noteStart*HOP_SIZE.
@@ -179,11 +180,13 @@ public:
     // synthWaveform[synthPreroll+noteSamples..) is the postroll after noteEnd.
     int getSynthPreroll() const { return synthPreroll; }
     void setSynthPreroll(int preroll) { synthPreroll = preroll; }
+    std::uint64_t getSynthPassId() const { return synthPassId; }
+    void setSynthPassId(std::uint64_t id) { synthPassId = id; }
 
     // Synth dirty flag (needs re-synthesis; separate from display dirty flag)
     bool isSynthDirty() const { return synthDirty; }
     void setSynthDirty(bool d) { synthDirty = d; }
-    void markSynthDirty() { synthDirty = true; synthWaveform.clear(); synthPreroll = 0; }
+    void markSynthDirty() { synthDirty = true; synthWaveform.clear(); synthPreroll = 0; synthPassId = 0; }
 
     // Mel spectrogram clip (original mel frames for this note)
     const std::vector<std::vector<float>>& getClipMel() const { return clipMel; }
@@ -256,6 +259,7 @@ private:
     std::vector<float> srcClipWaveform;  // Immutable original audio (from originalWaveform)
     std::vector<float> synthWaveform;    // Vocoder output (regenerated when synthDirty)
     int synthPreroll = 0;                // Margin samples prepended before noteStart in synthWaveform
+    std::uint64_t synthPassId = 0;       // Incremental synthesis pass that produced synthWaveform
     std::vector<std::vector<float>> clipMel;  // Mel spectrogram clip [T, numMels]
 
     // Harmonic-noise separation curves (per note-local frame)

@@ -139,6 +139,21 @@ void SettingsManager::loadConfig()
         if (configObj->hasProperty("showUvInterpolationDebug"))
           showUvInterpolationDebug =
               static_cast<bool>(configObj->getProperty("showUvInterpolationDebug"));
+        if (configObj->hasProperty("showVadDebug"))
+          showVadDebug =
+              static_cast<bool>(configObj->getProperty("showVadDebug"));
+        if (configObj->hasProperty("showVoicedMaskDebug"))
+          showVoicedMaskDebug =
+              static_cast<bool>(configObj->getProperty("showVoicedMaskDebug"));
+        if (configObj->hasProperty("showDirtyRangeDebug"))
+          showDirtyRangeDebug =
+              static_cast<bool>(configObj->getProperty("showDirtyRangeDebug"));
+        if (configObj->hasProperty("showResynthesisRangeDebug"))
+          showResynthesisRangeDebug =
+              static_cast<bool>(configObj->getProperty("showResynthesisRangeDebug"));
+        if (configObj->hasProperty("showBlendMaskDebug"))
+          showBlendMaskDebug =
+              static_cast<bool>(configObj->getProperty("showBlendMaskDebug"));
         if (configObj->hasProperty("showActualF0Debug"))
           showActualF0Debug =
               static_cast<bool>(configObj->getProperty("showActualF0Debug"));
@@ -198,6 +213,11 @@ void SettingsManager::saveConfig()
   config->setProperty("showSegmentsDebug", showSegmentsDebug);
   config->setProperty("showGameValuesDebug", showGameValuesDebug);
   config->setProperty("showUvInterpolationDebug", showUvInterpolationDebug);
+  config->setProperty("showVadDebug", showVadDebug);
+  config->setProperty("showVoicedMaskDebug", showVoicedMaskDebug);
+  config->setProperty("showDirtyRangeDebug", showDirtyRangeDebug);
+  config->setProperty("showResynthesisRangeDebug", showResynthesisRangeDebug);
+  config->setProperty("showBlendMaskDebug", showBlendMaskDebug);
   config->setProperty("showActualF0Debug", showActualF0Debug);
   config->setProperty("showIdealSmoothingCurveDebug",
                       showIdealSmoothingCurveDebug);

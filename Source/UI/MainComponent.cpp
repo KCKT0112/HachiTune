@@ -172,6 +172,15 @@ MainComponent::MainComponent(bool enableAudioDevice)
       settingsManager->getShowGameValuesDebug());
   pianoRoll.setShowUvInterpolationDebug(
       settingsManager->getShowUvInterpolationDebug());
+  pianoRoll.setShowVadDebug(settingsManager->getShowVadDebug());
+  pianoRoll.setShowVoicedMaskDebug(
+      settingsManager->getShowVoicedMaskDebug());
+  pianoRoll.setShowDirtyRangeDebug(
+      settingsManager->getShowDirtyRangeDebug());
+  pianoRoll.setShowResynthesisRangeDebug(
+      settingsManager->getShowResynthesisRangeDebug());
+  pianoRoll.setShowBlendMaskDebug(
+      settingsManager->getShowBlendMaskDebug());
   pianoRoll.setShowActualF0Debug(
       settingsManager->getShowActualF0Debug());
   pianoRoll.setShowIdealSmoothingCurveDebug(
@@ -1597,6 +1606,62 @@ void MainComponent::showSettings()
         settingsManager->saveConfig();
       }
       pianoRoll.setShowUvInterpolationDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowVadDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowVadDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowVadDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowVoicedMaskDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowVoicedMaskDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowVoicedMaskDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowDirtyRangeDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowDirtyRangeDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowDirtyRangeDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()
+        ->onShowResynthesisRangeDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowResynthesisRangeDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowResynthesisRangeDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowBlendMaskDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowBlendMaskDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowBlendMaskDebug(show);
       pianoRoll.repaint();
     };
     settingsOverlay->getSettingsComponent()->onShowActualF0DebugChanged =

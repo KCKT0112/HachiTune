@@ -120,6 +120,12 @@ SettingsComponent::SettingsComponent(
   { setActiveTab(SettingsTab::Audio); };
   addAndMakeVisible(audioTabButton);
 
+  debugTabButton.setButtonText(TR("settings.debug"));
+  configureTabButton(debugTabButton);
+  debugTabButton.onClick = [this]()
+  { setActiveTab(SettingsTab::Debug); };
+  addAndMakeVisible(debugTabButton);
+
   // General section label
   generalSectionLabel.setText(TR("settings.general"),
                               juce::dontSendNotification);
@@ -127,6 +133,13 @@ SettingsComponent::SettingsComponent(
   generalSectionLabel.setColour(juce::Label::textColourId,
                                 APP_COLOR_TEXT_MUTED);
   addAndMakeVisible(generalSectionLabel);
+
+  debugSectionLabel.setText(TR("settings.debug"),
+                            juce::dontSendNotification);
+  debugSectionLabel.setFont(AppFont::getBoldFont(15.0f));
+  debugSectionLabel.setColour(juce::Label::textColourId,
+                              APP_COLOR_TEXT_MUTED);
+  addAndMakeVisible(debugSectionLabel);
 
   // Language selection
   languageLabel.setText(TR("settings.language"), juce::dontSendNotification);
@@ -238,6 +251,109 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(uvInterpolationDebugToggle);
 
+  vadDebugLabel.setText(TR("settings.show_vad_debug"),
+                        juce::dontSendNotification);
+  configureRowLabel(vadDebugLabel);
+  addAndMakeVisible(vadDebugLabel);
+
+  vadDebugToggle.setButtonText("");
+  vadDebugToggle.setClickingTogglesState(true);
+  vadDebugToggle.onClick = [this]()
+  {
+    showVadDebug = vadDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowVadDebug(showVadDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowVadDebugChanged)
+      onShowVadDebugChanged(showVadDebug);
+  };
+  addAndMakeVisible(vadDebugToggle);
+
+  voicedMaskDebugLabel.setText(TR("settings.show_voiced_mask_debug"),
+                               juce::dontSendNotification);
+  configureRowLabel(voicedMaskDebugLabel);
+  addAndMakeVisible(voicedMaskDebugLabel);
+
+  voicedMaskDebugToggle.setButtonText("");
+  voicedMaskDebugToggle.setClickingTogglesState(true);
+  voicedMaskDebugToggle.onClick = [this]()
+  {
+    showVoicedMaskDebug = voicedMaskDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowVoicedMaskDebug(showVoicedMaskDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowVoicedMaskDebugChanged)
+      onShowVoicedMaskDebugChanged(showVoicedMaskDebug);
+  };
+  addAndMakeVisible(voicedMaskDebugToggle);
+
+  dirtyRangeDebugLabel.setText(TR("settings.show_dirty_range_debug"),
+                               juce::dontSendNotification);
+  configureRowLabel(dirtyRangeDebugLabel);
+  addAndMakeVisible(dirtyRangeDebugLabel);
+
+  dirtyRangeDebugToggle.setButtonText("");
+  dirtyRangeDebugToggle.setClickingTogglesState(true);
+  dirtyRangeDebugToggle.onClick = [this]()
+  {
+    showDirtyRangeDebug = dirtyRangeDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowDirtyRangeDebug(showDirtyRangeDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowDirtyRangeDebugChanged)
+      onShowDirtyRangeDebugChanged(showDirtyRangeDebug);
+  };
+  addAndMakeVisible(dirtyRangeDebugToggle);
+
+  resynthesisRangeDebugLabel.setText(
+      TR("settings.show_resynthesis_range_debug"),
+      juce::dontSendNotification);
+  configureRowLabel(resynthesisRangeDebugLabel);
+  addAndMakeVisible(resynthesisRangeDebugLabel);
+
+  resynthesisRangeDebugToggle.setButtonText("");
+  resynthesisRangeDebugToggle.setClickingTogglesState(true);
+  resynthesisRangeDebugToggle.onClick = [this]()
+  {
+    showResynthesisRangeDebug =
+        resynthesisRangeDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowResynthesisRangeDebug(
+          showResynthesisRangeDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowResynthesisRangeDebugChanged)
+      onShowResynthesisRangeDebugChanged(showResynthesisRangeDebug);
+  };
+  addAndMakeVisible(resynthesisRangeDebugToggle);
+
+  blendMaskDebugLabel.setText(TR("settings.show_blend_mask_debug"),
+                              juce::dontSendNotification);
+  configureRowLabel(blendMaskDebugLabel);
+  addAndMakeVisible(blendMaskDebugLabel);
+
+  blendMaskDebugToggle.setButtonText("");
+  blendMaskDebugToggle.setClickingTogglesState(true);
+  blendMaskDebugToggle.onClick = [this]()
+  {
+    showBlendMaskDebug = blendMaskDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowBlendMaskDebug(showBlendMaskDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowBlendMaskDebugChanged)
+      onShowBlendMaskDebugChanged(showBlendMaskDebug);
+  };
+  addAndMakeVisible(blendMaskDebugToggle);
+
   actualF0DebugLabel.setText(TR("settings.show_actual_f0_debug"),
                              juce::dontSendNotification);
   configureRowLabel(actualF0DebugLabel);
@@ -316,7 +432,7 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(pitchFilterDebugWindowButton);
 
-  pitchFilterContextRangeLabel.setText("Pitch filter context range",
+  pitchFilterContextRangeLabel.setText(TR("settings.pitch_filter_context_range"),
                                        juce::dontSendNotification);
   configureRowLabel(pitchFilterContextRangeLabel);
   addAndMakeVisible(pitchFilterContextRangeLabel);
@@ -431,6 +547,7 @@ SettingsComponent::~SettingsComponent()
     deviceManager->removeChangeListener(this);
   generalTabButton.setLookAndFeel(nullptr);
   audioTabButton.setLookAndFeel(nullptr);
+  debugTabButton.setLookAndFeel(nullptr);
   languageComboBox.setLookAndFeel(nullptr);
   deviceComboBox.setLookAndFeel(nullptr);
   gpuDeviceComboBox.setLookAndFeel(nullptr);
@@ -443,6 +560,11 @@ SettingsComponent::~SettingsComponent()
   segmentsDebugToggle.setLookAndFeel(nullptr);
   gameValuesDebugToggle.setLookAndFeel(nullptr);
   uvInterpolationDebugToggle.setLookAndFeel(nullptr);
+  vadDebugToggle.setLookAndFeel(nullptr);
+  voicedMaskDebugToggle.setLookAndFeel(nullptr);
+  dirtyRangeDebugToggle.setLookAndFeel(nullptr);
+  resynthesisRangeDebugToggle.setLookAndFeel(nullptr);
+  blendMaskDebugToggle.setLookAndFeel(nullptr);
   actualF0DebugToggle.setLookAndFeel(nullptr);
   idealSmoothingCurveDebugToggle.setLookAndFeel(nullptr);
   pitchToolMouseMoveToggle.setLookAndFeel(nullptr);
@@ -524,7 +646,7 @@ void SettingsComponent::resized()
   auto tabAreaBounds = sidebarBounds.reduced(8, 10);
   const int tabHeight = 32;
   const int tabGap = 6;
-  const int tabCount = audioTabButton.isVisible() ? 2 : 1;
+  const int tabCount = audioTabButton.isVisible() ? 3 : 2;
   const int tabContainerHeight = 16 + tabCount * tabHeight + (tabCount - 1) * tabGap;
   tabListBounds =
       tabAreaBounds.withHeight(juce::jmin(tabAreaBounds.getHeight(), tabContainerHeight));
@@ -536,6 +658,8 @@ void SettingsComponent::resized()
     tabArea.removeFromTop(tabGap);
     audioTabButton.setBounds(tabArea.removeFromTop(tabHeight));
   }
+  tabArea.removeFromTop(tabGap);
+  debugTabButton.setBounds(tabArea.removeFromTop(tabHeight));
 
   bounds.removeFromLeft(10);
 
@@ -546,8 +670,9 @@ void SettingsComponent::resized()
   cardBounds = bounds;
   auto content = cardBounds.reduced(16, 12);
 
-  const int rowHeight = 32;
-  const int rowGap = 8;
+  const bool useCompactRows = (activeTab == SettingsTab::Debug);
+  const int rowHeight = useCompactRows ? 26 : 32;
+  const int rowGap = useCompactRows ? 4 : 8;
   const int controlWidth =
       juce::jlimit(190, 300, content.getWidth() / 3);
   const int labelWidth =
@@ -578,13 +703,7 @@ void SettingsComponent::resized()
     }
 
     layoutRow(pitchDetectorLabel, pitchDetectorComboBox);
-    layoutRow(gameChunksDebugLabel, segmentsDebugToggle);
-    layoutRow(gameValuesDebugLabel, gameValuesDebugToggle);
-    layoutRow(uvInterpolationDebugLabel, uvInterpolationDebugToggle);
-    layoutRow(actualF0DebugLabel, actualF0DebugToggle);
-    layoutRow(idealSmoothingCurveDebugLabel, idealSmoothingCurveDebugToggle);
     layoutRow(pitchToolMouseMoveLabel, pitchToolMouseMoveToggle);
-    layoutRow(pitchFilterDebugWindowLabel, pitchFilterDebugWindowButton);
     layoutRow(pitchFilterContextRangeLabel, pitchFilterContextRangeSlider);
 
     infoLabel.setBounds(content.removeFromTop(56));
@@ -603,6 +722,25 @@ void SettingsComponent::resized()
     layoutRow(sampleRateLabel, sampleRateComboBox);
     layoutRow(bufferSizeLabel, bufferSizeComboBox);
     layoutRow(outputChannelsLabel, outputChannelsComboBox);
+  }
+
+  if (activeTab == SettingsTab::Debug)
+  {
+    debugSectionLabel.setBounds(content.removeFromTop(20));
+    separatorYs.add(debugSectionLabel.getBottom() + 6);
+    content.removeFromTop(10);
+
+    layoutRow(gameChunksDebugLabel, segmentsDebugToggle);
+    layoutRow(gameValuesDebugLabel, gameValuesDebugToggle);
+    layoutRow(vadDebugLabel, vadDebugToggle);
+    layoutRow(voicedMaskDebugLabel, voicedMaskDebugToggle);
+    layoutRow(dirtyRangeDebugLabel, dirtyRangeDebugToggle);
+    layoutRow(resynthesisRangeDebugLabel, resynthesisRangeDebugToggle);
+    layoutRow(blendMaskDebugLabel, blendMaskDebugToggle);
+    layoutRow(uvInterpolationDebugLabel, uvInterpolationDebugToggle);
+    layoutRow(actualF0DebugLabel, actualF0DebugToggle);
+    layoutRow(idealSmoothingCurveDebugLabel, idealSmoothingCurveDebugToggle);
+    layoutRow(pitchFilterDebugWindowLabel, pitchFilterDebugWindowButton);
   }
 }
 
@@ -807,6 +945,7 @@ void SettingsComponent::updateTabButtonStyles()
 
   applyStyle(generalTabButton, activeTab == SettingsTab::General);
   applyStyle(audioTabButton, activeTab == SettingsTab::Audio);
+  applyStyle(debugTabButton, activeTab == SettingsTab::Debug);
 }
 
 void SettingsComponent::updateTabVisibility()
@@ -815,9 +954,11 @@ void SettingsComponent::updateTabVisibility()
   const bool showAudio =
       (!pluginMode && deviceManager != nullptr &&
        activeTab == SettingsTab::Audio);
+  const bool showDebug = (activeTab == SettingsTab::Debug);
   const bool showGpuDeviceList = shouldShowGpuDeviceList();
 
   generalSectionLabel.setVisible(showGeneral);
+  debugSectionLabel.setVisible(showDebug);
   languageLabel.setVisible(showGeneral);
   languageComboBox.setVisible(showGeneral);
   deviceLabel.setVisible(showGeneral);
@@ -826,21 +967,34 @@ void SettingsComponent::updateTabVisibility()
   gpuDeviceComboBox.setVisible(showGeneral && showGpuDeviceList);
   pitchDetectorLabel.setVisible(showGeneral);
   pitchDetectorComboBox.setVisible(showGeneral);
-  gameChunksDebugLabel.setVisible(showGeneral);
-  segmentsDebugToggle.setVisible(showGeneral);
-  gameValuesDebugLabel.setVisible(showGeneral);
-  gameValuesDebugToggle.setVisible(showGeneral);
-  uvInterpolationDebugLabel.setVisible(showGeneral);
-  uvInterpolationDebugToggle.setVisible(showGeneral);
-  actualF0DebugLabel.setVisible(showGeneral);
-  actualF0DebugToggle.setVisible(showGeneral);
-  idealSmoothingCurveDebugLabel.setVisible(showGeneral);
-  idealSmoothingCurveDebugToggle.setVisible(showGeneral);
   pitchToolMouseMoveLabel.setVisible(showGeneral);
   pitchToolMouseMoveToggle.setVisible(showGeneral);
-  pitchFilterDebugWindowLabel.setVisible(showGeneral);
-  pitchFilterDebugWindowButton.setVisible(showGeneral);
+  pitchFilterContextRangeLabel.setVisible(showGeneral);
+  pitchFilterContextRangeSlider.setVisible(showGeneral);
   infoLabel.setVisible(showGeneral);
+
+  gameChunksDebugLabel.setVisible(showDebug);
+  segmentsDebugToggle.setVisible(showDebug);
+  gameValuesDebugLabel.setVisible(showDebug);
+  gameValuesDebugToggle.setVisible(showDebug);
+  uvInterpolationDebugLabel.setVisible(showDebug);
+  uvInterpolationDebugToggle.setVisible(showDebug);
+  vadDebugLabel.setVisible(showDebug);
+  vadDebugToggle.setVisible(showDebug);
+  voicedMaskDebugLabel.setVisible(showDebug);
+  voicedMaskDebugToggle.setVisible(showDebug);
+  dirtyRangeDebugLabel.setVisible(showDebug);
+  dirtyRangeDebugToggle.setVisible(showDebug);
+  resynthesisRangeDebugLabel.setVisible(showDebug);
+  resynthesisRangeDebugToggle.setVisible(showDebug);
+  blendMaskDebugLabel.setVisible(showDebug);
+  blendMaskDebugToggle.setVisible(showDebug);
+  actualF0DebugLabel.setVisible(showDebug);
+  actualF0DebugToggle.setVisible(showDebug);
+  idealSmoothingCurveDebugLabel.setVisible(showDebug);
+  idealSmoothingCurveDebugToggle.setVisible(showDebug);
+  pitchFilterDebugWindowLabel.setVisible(showDebug);
+  pitchFilterDebugWindowButton.setVisible(showDebug);
 
   audioSectionLabel.setVisible(showAudio);
   audioDeviceTypeLabel.setVisible(showAudio);
@@ -855,8 +1009,10 @@ void SettingsComponent::updateTabVisibility()
   outputChannelsComboBox.setVisible(showAudio);
 
   audioTabButton.setVisible(!pluginMode && deviceManager != nullptr);
+  debugTabButton.setVisible(true);
 
-  if (pluginMode || deviceManager == nullptr)
+  if ((pluginMode || deviceManager == nullptr) &&
+      activeTab == SettingsTab::Audio)
     setActiveTab(SettingsTab::General);
 }
 
@@ -1174,6 +1330,12 @@ void SettingsComponent::loadSettings()
     showSegmentsDebug = settingsManager->getShowSegmentsDebug();
     showGameValuesDebug = settingsManager->getShowGameValuesDebug();
     showUvInterpolationDebug = settingsManager->getShowUvInterpolationDebug();
+    showVadDebug = settingsManager->getShowVadDebug();
+    showVoicedMaskDebug = settingsManager->getShowVoicedMaskDebug();
+    showDirtyRangeDebug = settingsManager->getShowDirtyRangeDebug();
+    showResynthesisRangeDebug =
+        settingsManager->getShowResynthesisRangeDebug();
+    showBlendMaskDebug = settingsManager->getShowBlendMaskDebug();
     showActualF0Debug = settingsManager->getShowActualF0Debug();
     showIdealSmoothingCurveDebug =
         settingsManager->getShowIdealSmoothingCurveDebug();
@@ -1235,6 +1397,15 @@ void SettingsComponent::loadSettings()
                                        juce::dontSendNotification);
   uvInterpolationDebugToggle.setToggleState(showUvInterpolationDebug,
                                             juce::dontSendNotification);
+  vadDebugToggle.setToggleState(showVadDebug, juce::dontSendNotification);
+  voicedMaskDebugToggle.setToggleState(showVoicedMaskDebug,
+                                       juce::dontSendNotification);
+  dirtyRangeDebugToggle.setToggleState(showDirtyRangeDebug,
+                                       juce::dontSendNotification);
+  resynthesisRangeDebugToggle.setToggleState(showResynthesisRangeDebug,
+                                             juce::dontSendNotification);
+  blendMaskDebugToggle.setToggleState(showBlendMaskDebug,
+                                      juce::dontSendNotification);
   actualF0DebugToggle.setToggleState(showActualF0Debug,
                                      juce::dontSendNotification);
   idealSmoothingCurveDebugToggle.setToggleState(
@@ -1279,6 +1450,11 @@ void SettingsComponent::saveSettings()
     settingsManager->setShowSegmentsDebug(showSegmentsDebug);
     settingsManager->setShowGameValuesDebug(showGameValuesDebug);
     settingsManager->setShowUvInterpolationDebug(showUvInterpolationDebug);
+    settingsManager->setShowVadDebug(showVadDebug);
+    settingsManager->setShowVoicedMaskDebug(showVoicedMaskDebug);
+    settingsManager->setShowDirtyRangeDebug(showDirtyRangeDebug);
+    settingsManager->setShowResynthesisRangeDebug(showResynthesisRangeDebug);
+    settingsManager->setShowBlendMaskDebug(showBlendMaskDebug);
     settingsManager->setShowActualF0Debug(showActualF0Debug);
     settingsManager->setShowIdealSmoothingCurveDebug(
         showIdealSmoothingCurveDebug);

@@ -31,6 +31,45 @@ struct AudioData
         std::vector<SegmentDebugEvent> events;
     };
 
+    struct IncrementalSynthesisDebugInfo
+    {
+        int dirtyStartFrame = -1;
+        int dirtyEndFrame = -1;
+        int synthesisStartFrame = -1;
+        int synthesisEndFrame = -1;
+        int f0DirtyStartFrame = -1;
+        int f0DirtyEndFrame = -1;
+        int paramDirtyStartFrame = -1;
+        int paramDirtyEndFrame = -1;
+        std::vector<std::pair<int, int>> dirtyNoteRanges;
+        std::vector<float> blendMaskFrames; // Local to [synthesisStartFrame, synthesisEndFrame)
+
+        void clear()
+        {
+            dirtyStartFrame = -1;
+            dirtyEndFrame = -1;
+            synthesisStartFrame = -1;
+            synthesisEndFrame = -1;
+            f0DirtyStartFrame = -1;
+            f0DirtyEndFrame = -1;
+            paramDirtyStartFrame = -1;
+            paramDirtyEndFrame = -1;
+            dirtyNoteRanges.clear();
+            blendMaskFrames.clear();
+        }
+
+        bool hasDirtyRange() const
+        {
+            return dirtyStartFrame >= 0 && dirtyEndFrame > dirtyStartFrame;
+        }
+
+        bool hasSynthesisRange() const
+        {
+            return synthesisStartFrame >= 0 &&
+                   synthesisEndFrame > synthesisStartFrame;
+        }
+    };
+
     juce::AudioBuffer<float> waveform;
     juce::AudioBuffer<float> originalWaveform; // pristine copy for blend (never modified after analysis)
 
@@ -53,6 +92,7 @@ struct AudioData
     std::vector<bool> vadMask;                           // [T] energy-based VAD (true = has audio energy, captures consonants)
     std::vector<std::pair<int, int>> segmentChunkRanges; // [N] GAME slicer chunks in frame range [start, end)
     std::vector<SegmentDebugChunk> segmentDebugChunks;   // raw GAME outputs for debug visualization
+    IncrementalSynthesisDebugInfo incrementalDebug;
 
     float getDuration() const
     {

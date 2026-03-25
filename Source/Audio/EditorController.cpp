@@ -1037,6 +1037,11 @@ void EditorController::segmentIntoNotes(Project &targetProject,
   const int harmonicSamples = audioData.harmonicWaveform.getNumSamples();
   const int noiseSamples = audioData.noiseWaveform.getNumSamples();
   const bool hasHNSep = harmonicSamples > 0 && noiseSamples > 0;
+  const auto &sourceWaveform =
+      audioData.originalWaveform.getNumSamples() > 0
+          ? audioData.originalWaveform
+          : audioData.waveform;
+  const int sourceSamples = sourceWaveform.getNumSamples();
 
   auto sliceHNSepClips = [&]()
   {
@@ -1066,6 +1071,31 @@ void EditorController::segmentIntoNotes(Project &targetProject,
                                  noisePtr + nClampedEnd);
         note.setClipNoiseWaveform(std::move(nClip));
       }
+    }
+  };
+
+  auto sliceSourceClips = [&]()
+  {
+    if (sourceSamples <= 0 || sourceWaveform.getNumChannels() <= 0)
+      return;
+
+    const float *sourcePtr = sourceWaveform.getReadPointer(0);
+    for (auto &note : notes)
+    {
+      const int sampleStart = note.getSrcStartFrame() * HOP_SIZE;
+      const int sampleEnd = note.getSrcEndFrame() * HOP_SIZE;
+      const int clampedStart = std::max(0, std::min(sampleStart, sourceSamples));
+      const int clampedEnd = std::max(clampedStart, std::min(sampleEnd, sourceSamples));
+
+      if (clampedEnd <= clampedStart)
+      {
+        note.setSrcClipWaveform({});
+        continue;
+      }
+
+      std::vector<float> srcClip(sourcePtr + clampedStart,
+                                 sourcePtr + clampedEnd);
+      note.setSrcClipWaveform(std::move(srcClip));
     }
   };
 
@@ -1311,6 +1341,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
 
     juce::Thread::sleep(100);
 
+    sliceSourceClips();
     sliceHNSepClips();
 
     if (!audioData.f0.empty())
@@ -1419,6 +1450,7 @@ void EditorController::segmentIntoNotes(Project &targetProject,
   }
 
   // Slice harmonic/noise waveforms into per-note clips (fallback path)
+  sliceSourceClips();
   sliceHNSepClips();
 
   if (!audioData.f0.empty())

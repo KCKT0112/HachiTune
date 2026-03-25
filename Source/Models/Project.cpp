@@ -796,6 +796,11 @@ void Project::composeGlobalWaveform()
         const auto &next = synthInfos[si + 1];
         if (!curr.rightAdjacentSynth)
             continue; // not adjacent
+        if (curr.note->getSynthPassId() == 0 ||
+            curr.note->getSynthPassId() != next.note->getSynthPassId())
+        {
+            continue; // only splice margins rendered together in the same pass
+        }
 
         const auto &sw1 = curr.note->getSynthWaveform();
         const auto &sw2 = next.note->getSynthWaveform();

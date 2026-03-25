@@ -116,6 +116,182 @@ namespace
     const double ratio = value / step;
     return std::abs(ratio - std::round(ratio)) < 1.0e-4;
   }
+
+  struct VisibleFrameRange
+  {
+    int startFrame = 0;
+    int endFrame = 0;
+  };
+
+  struct DebugLaneSegment
+  {
+    int startFrame = 0;
+    int endFrame = 0;
+    juce::Colour fill;
+    juce::Colour outline;
+  };
+
+  struct DebugLane
+  {
+    juce::String label;
+    std::vector<DebugLaneSegment> segments;
+  };
+
+  VisibleFrameRange getVisibleFrameRange(const AudioData &audioData,
+                                         double scrollX,
+                                         int visibleWidth,
+                                         float pixelsPerSecond)
+  {
+    VisibleFrameRange range;
+    if (audioData.sampleRate <= 0 || pixelsPerSecond <= 0.0f)
+      return range;
+
+    range.startFrame = std::max(
+        0, static_cast<int>(scrollX / pixelsPerSecond * audioData.sampleRate /
+                            HOP_SIZE));
+    range.endFrame = std::min(
+        audioData.getNumFrames(),
+        static_cast<int>((scrollX + visibleWidth) / pixelsPerSecond *
+                         audioData.sampleRate / HOP_SIZE) +
+            1);
+    return range;
+  }
+
+  void appendDebugLaneSegment(std::vector<DebugLaneSegment> &segments,
+                              int startFrame,
+                              int endFrame,
+                              juce::Colour fill,
+                              juce::Colour outline)
+  {
+    if (endFrame <= startFrame)
+      return;
+
+    segments.push_back({startFrame, endFrame, fill, outline});
+  }
+
+  template <typename Predicate>
+  std::vector<DebugLaneSegment>
+  collectBooleanMaskSegments(int visibleStartFrame,
+                             int visibleEndFrame,
+                             Predicate predicate,
+                             juce::Colour fill,
+                             juce::Colour outline)
+  {
+    std::vector<DebugLaneSegment> segments;
+    int runStart = -1;
+
+    for (int frame = visibleStartFrame; frame <= visibleEndFrame; ++frame)
+    {
+      const bool active =
+          frame < visibleEndFrame && predicate(frame);
+      if (active)
+      {
+        if (runStart < 0)
+          runStart = frame;
+      }
+      else if (runStart >= 0)
+      {
+        appendDebugLaneSegment(segments, runStart, frame, fill, outline);
+        runStart = -1;
+      }
+    }
+
+    return segments;
+  }
+
+  void drawDebugRangeBadge(juce::Graphics &g,
+                           const juce::String &label,
+                           float x,
+                           float y,
+                           juce::Colour colour)
+  {
+    if (label.isEmpty())
+      return;
+
+    g.setFont(juce::FontOptions(10.5f));
+    const float width =
+        std::max(34.0f, g.getCurrentFont().getStringWidthFloat(label) + 12.0f);
+    juce::Rectangle<float> badge(x, y, width, 14.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.62f));
+    g.fillRoundedRectangle(badge, 5.0f);
+    g.setColour(colour.withAlpha(0.9f));
+    g.drawRoundedRectangle(badge, 5.0f, 1.0f);
+    g.setColour(APP_COLOR_TEXT_PRIMARY.withAlpha(0.94f));
+    g.drawText(label, badge.toNearestInt(), juce::Justification::centred);
+  }
+
+  void drawFrameRangeBand(juce::Graphics &g,
+                          float pixelsPerSecond,
+                          int startFrame,
+                          int endFrame,
+                          float top,
+                          float height,
+                          float visibleStartX,
+                          float visibleEndX,
+                          juce::Colour fill,
+                          juce::Colour outline,
+                          const juce::String &label)
+  {
+    if (endFrame <= startFrame)
+      return;
+
+    const float x1 = framesToSeconds(startFrame) * pixelsPerSecond;
+    const float x2 = framesToSeconds(endFrame) * pixelsPerSecond;
+    if (x2 <= visibleStartX || x1 >= visibleEndX)
+      return;
+
+    const float clampedX1 = std::max(x1, visibleStartX);
+    const float clampedX2 = std::min(x2, visibleEndX);
+    const float width = std::max(1.0f, clampedX2 - clampedX1);
+
+    g.setColour(fill);
+    g.fillRect(clampedX1, top, width, height);
+
+    g.setColour(outline);
+    g.drawLine(x1, top, x1, top + height, 1.0f);
+    g.drawLine(x2, top, x2, top + height, 1.0f);
+
+    if (label.isNotEmpty())
+    {
+      const float badgeX = std::max(visibleStartX + 66.0f, clampedX1 + 4.0f);
+      if (badgeX < visibleEndX - 40.0f)
+        drawDebugRangeBadge(g, label, badgeX, top + 6.0f, outline);
+    }
+  }
+
+  void drawDebugLane(juce::Graphics &g,
+                     float pixelsPerSecond,
+                     float visibleStartX,
+                     float visibleEndX,
+                     float y,
+                     float height,
+                     const DebugLane &lane)
+  {
+    const float lineY = y + height * 0.5f;
+    g.setColour(juce::Colours::black.withAlpha(0.30f));
+    g.drawLine(visibleStartX, lineY, visibleEndX, lineY, 1.0f);
+
+    for (const auto &segment : lane.segments)
+    {
+      const float x1 = framesToSeconds(segment.startFrame) * pixelsPerSecond;
+      const float x2 = framesToSeconds(segment.endFrame) * pixelsPerSecond;
+      if (x2 <= visibleStartX || x1 >= visibleEndX)
+        continue;
+
+      const float clampedX1 = std::max(x1, visibleStartX);
+      const float clampedX2 = std::min(x2, visibleEndX);
+      const float width = std::max(1.0f, clampedX2 - clampedX1);
+      const auto bounds = juce::Rectangle<float>(clampedX1, y, width, height);
+
+      g.setColour(segment.fill);
+      g.fillRoundedRectangle(bounds, 3.0f);
+      g.setColour(segment.outline);
+      g.drawRoundedRectangle(bounds, 3.0f, 1.0f);
+    }
+
+    drawDebugRangeBadge(g, lane.label, visibleStartX + 8.0f, y - 2.0f,
+                        juce::Colours::white.withAlpha(0.70f));
+  }
 }
 
 PianoRollComponent::PianoRollComponent()
@@ -303,6 +479,7 @@ void PianoRollComponent::paint(juce::Graphics &g)
 #if HACHITUNE_ENABLE_STRETCH
     drawStretchGuides(g);
 #endif
+    drawIncrementalSynthesisDebugOverlay(g);
     drawGameValuesDebugOverlay(g);
     drawSelectionRect(g);
 
@@ -696,6 +873,210 @@ void PianoRollComponent::drawGameChunksDebugOverlay(juce::Graphics &g)
 
     const float x = framesToSeconds(startFrame) * pixelsPerSecond;
     g.drawVerticalLine(static_cast<int>(x), 0.0f, height);
+  }
+}
+
+void PianoRollComponent::drawIncrementalSynthesisDebugOverlay(
+    juce::Graphics &g)
+{
+  if (!project)
+    return;
+
+  const bool showAnyOverlay =
+      showVadDebug || showVoicedMaskDebug || showDirtyRangeDebug ||
+      showResynthesisRangeDebug || showBlendMaskDebug;
+  if (!showAnyOverlay)
+    return;
+
+  const auto &audioData = project->getAudioData();
+  const auto &debugInfo = audioData.incrementalDebug;
+
+  const int totalFrames = std::max(
+      {audioData.getNumFrames(), static_cast<int>(audioData.vadMask.size()),
+       static_cast<int>(audioData.voicedMask.size()),
+       debugInfo.dirtyEndFrame, debugInfo.synthesisEndFrame});
+  if (audioData.sampleRate <= 0 || totalFrames <= 0)
+    return;
+
+  const auto visibleRange = getVisibleFrameRange(
+      audioData, scrollX, getVisibleContentWidth(), pixelsPerSecond);
+  if (visibleRange.endFrame <= visibleRange.startFrame)
+    return;
+
+  const float visibleStartX = static_cast<float>(scrollX);
+  const float visibleEndX =
+      visibleStartX + static_cast<float>(getVisibleContentWidth());
+  const float visibleTop = static_cast<float>(scrollY);
+  const float visibleHeight = static_cast<float>(getVisibleContentHeight());
+
+  if (showResynthesisRangeDebug && debugInfo.hasSynthesisRange())
+  {
+    drawFrameRangeBand(
+        g, pixelsPerSecond, debugInfo.synthesisStartFrame,
+        debugInfo.synthesisEndFrame, visibleTop, visibleHeight, visibleStartX,
+        visibleEndX, juce::Colours::deepskyblue.withAlpha(0.10f),
+        juce::Colours::deepskyblue.withAlpha(0.78f), "Resynth");
+  }
+
+  if (showDirtyRangeDebug && debugInfo.hasDirtyRange())
+  {
+    drawFrameRangeBand(
+        g, pixelsPerSecond, debugInfo.dirtyStartFrame, debugInfo.dirtyEndFrame,
+        visibleTop, visibleHeight, visibleStartX, visibleEndX,
+        juce::Colours::red.withAlpha(0.08f),
+        juce::Colours::orangered.withAlpha(0.78f), "Dirty");
+  }
+
+  std::vector<DebugLane> lanes;
+  lanes.reserve(6);
+
+  if (showDirtyRangeDebug)
+  {
+    if (!debugInfo.dirtyNoteRanges.empty())
+    {
+      DebugLane lane;
+      lane.label = "Notes";
+      for (const auto &[startFrame, endFrame] : debugInfo.dirtyNoteRanges)
+        appendDebugLaneSegment(
+            lane.segments, startFrame, endFrame,
+            juce::Colours::orange.withAlpha(0.58f),
+            juce::Colours::orange.withAlpha(0.92f));
+      lanes.push_back(std::move(lane));
+    }
+
+    if (debugInfo.f0DirtyEndFrame > debugInfo.f0DirtyStartFrame)
+    {
+      DebugLane lane;
+      lane.label = "F0";
+      appendDebugLaneSegment(lane.segments, debugInfo.f0DirtyStartFrame,
+                             debugInfo.f0DirtyEndFrame,
+                             juce::Colours::hotpink.withAlpha(0.55f),
+                             juce::Colours::hotpink.withAlpha(0.90f));
+      lanes.push_back(std::move(lane));
+    }
+
+    if (debugInfo.paramDirtyEndFrame > debugInfo.paramDirtyStartFrame)
+    {
+      DebugLane lane;
+      lane.label = "Param";
+      appendDebugLaneSegment(lane.segments, debugInfo.paramDirtyStartFrame,
+                             debugInfo.paramDirtyEndFrame,
+                             juce::Colours::gold.withAlpha(0.55f),
+                             juce::Colours::gold.withAlpha(0.90f));
+      lanes.push_back(std::move(lane));
+    }
+  }
+
+  if (showVadDebug)
+  {
+    DebugLane lane;
+    lane.label = "VAD";
+    lane.segments = collectBooleanMaskSegments(
+        visibleRange.startFrame, visibleRange.endFrame,
+        [&](int frame)
+        {
+          return frame >= 0 &&
+                 frame < static_cast<int>(audioData.vadMask.size()) &&
+                 static_cast<bool>(audioData.vadMask[static_cast<size_t>(frame)]);
+        },
+        juce::Colours::limegreen.withAlpha(0.50f),
+        juce::Colours::limegreen.withAlpha(0.88f));
+    lanes.push_back(std::move(lane));
+  }
+
+  if (showVoicedMaskDebug)
+  {
+    DebugLane lane;
+    lane.label = "Voice";
+    lane.segments = collectBooleanMaskSegments(
+        visibleRange.startFrame, visibleRange.endFrame,
+        [&](int frame)
+        {
+          return frame >= 0 &&
+                 frame < static_cast<int>(audioData.voicedMask.size()) &&
+                 static_cast<bool>(
+                     audioData.voicedMask[static_cast<size_t>(frame)]);
+        },
+        juce::Colour(0xCC8A6BFFu), juce::Colour(0xFFB299FFu));
+    lanes.push_back(std::move(lane));
+  }
+
+  if (showBlendMaskDebug && debugInfo.hasSynthesisRange() &&
+      !debugInfo.blendMaskFrames.empty())
+  {
+    auto classifyBlendFrame = [&](int frame) -> int
+    {
+      if (frame < debugInfo.synthesisStartFrame ||
+          frame >= debugInfo.synthesisEndFrame)
+        return -1;
+
+      const int localFrame = frame - debugInfo.synthesisStartFrame;
+      if (localFrame < 0 ||
+          localFrame >= static_cast<int>(debugInfo.blendMaskFrames.size()))
+        return -1;
+
+      const float blend =
+          debugInfo.blendMaskFrames[static_cast<size_t>(localFrame)];
+      if (blend <= 0.02f)
+        return 0; // original
+      if (blend >= 0.98f)
+        return 2; // synthesized
+      return 1;   // ramp / mixed
+    };
+
+    auto colourForBlendState = [](int state) -> std::pair<juce::Colour, juce::Colour>
+    {
+      switch (state)
+      {
+      case 0:
+        return {juce::Colours::orangered.withAlpha(0.52f),
+                juce::Colours::orangered.withAlpha(0.90f)};
+      case 1:
+        return {juce::Colours::gold.withAlpha(0.56f),
+                juce::Colours::gold.withAlpha(0.92f)};
+      case 2:
+        return {juce::Colours::deepskyblue.withAlpha(0.56f),
+                juce::Colours::deepskyblue.withAlpha(0.92f)};
+      default:
+        return {juce::Colours::transparentBlack,
+                juce::Colours::transparentBlack};
+      }
+    };
+
+    DebugLane lane;
+    lane.label = "Blend";
+
+    int runStart = -1;
+    int runState = -1;
+    for (int frame = visibleRange.startFrame; frame <= visibleRange.endFrame;
+         ++frame)
+    {
+      const int state =
+          frame < visibleRange.endFrame ? classifyBlendFrame(frame) : -1;
+      if (state == runState)
+        continue;
+
+      if (runState >= 0 && runStart >= 0)
+      {
+        const auto [fill, outline] = colourForBlendState(runState);
+        appendDebugLaneSegment(lane.segments, runStart, frame, fill, outline);
+      }
+
+      runState = state;
+      runStart = (state >= 0) ? frame : -1;
+    }
+
+    lanes.push_back(std::move(lane));
+  }
+
+  const float laneHeight = 10.0f;
+  const float laneGap = 4.0f;
+  float laneY = visibleTop + 26.0f;
+  for (const auto &lane : lanes)
+  {
+    drawDebugLane(g, pixelsPerSecond, visibleStartX, visibleEndX, laneY,
+                  laneHeight, lane);
+    laneY += laneHeight + laneGap;
   }
 }
 

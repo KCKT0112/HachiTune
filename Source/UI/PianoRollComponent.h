@@ -203,6 +203,31 @@ public:
     showUvInterpolationDebug = show;
     repaint();
   }
+  void setShowVadDebug(bool show)
+  {
+    showVadDebug = show;
+    repaint();
+  }
+  void setShowVoicedMaskDebug(bool show)
+  {
+    showVoicedMaskDebug = show;
+    repaint();
+  }
+  void setShowDirtyRangeDebug(bool show)
+  {
+    showDirtyRangeDebug = show;
+    repaint();
+  }
+  void setShowResynthesisRangeDebug(bool show)
+  {
+    showResynthesisRangeDebug = show;
+    repaint();
+  }
+  void setShowBlendMaskDebug(bool show)
+  {
+    showBlendMaskDebug = show;
+    repaint();
+  }
   void setShowActualF0Debug(bool show)
   {
     showActualF0Debug = show;
@@ -254,6 +279,7 @@ private:
   void drawSelectionRect(juce::Graphics &g); // Box selection rectangle
   void drawLoopOverlay(juce::Graphics &g);
   void drawGameChunksDebugOverlay(juce::Graphics &g);
+  void drawIncrementalSynthesisDebugOverlay(juce::Graphics &g);
   void drawGameValuesDebugOverlay(juce::Graphics &g);
 #if HACHITUNE_ENABLE_STRETCH
   void drawStretchGuides(juce::Graphics &g);
@@ -319,6 +345,11 @@ private:
   bool showSegmentsDebug = false;
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
+  bool showVadDebug = false;
+  bool showVoicedMaskDebug = false;
+  bool showDirtyRangeDebug = false;
+  bool showResynthesisRangeDebug = false;
+  bool showBlendMaskDebug = false;
   bool showActualF0Debug = false;
   bool showIdealSmoothingCurveDebug = false;
   bool showScaleColors = true;
