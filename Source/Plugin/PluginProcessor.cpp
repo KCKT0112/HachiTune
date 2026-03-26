@@ -169,12 +169,12 @@ juce::String HachiTuneAudioProcessor::getHostStatusMessage() const {
 
   if (hostInfo.type != HostCompatibility::HostType::Unknown) {
     if (araActive)
-      return hostInfo.name + " - ARA Mode";
+      return hostInfo.name + " - " + TR("host.ara_mode");
     if (hostInfo.supportsARA)
-      return hostInfo.name + " - Non-ARA (ARA Available)";
-    return hostInfo.name + " - Non-ARA Mode";
+      return hostInfo.name + " - " + TR("host.non_ara_available");
+    return hostInfo.name + " - " + TR("host.non_ara_mode");
   }
-  return araActive ? "ARA Mode" : "Non-ARA Mode";
+  return araActive ? TR("host.ara_mode") : TR("host.non_ara_mode");
 }
 
 // ============================================================================

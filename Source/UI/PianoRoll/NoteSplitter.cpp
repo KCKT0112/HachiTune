@@ -1,6 +1,48 @@
 #include "NoteSplitter.h"
 #include "../../Utils/Constants.h"
 #include <algorithm>
+#include <cmath>
+
+namespace
+{
+double computeSplitRatio(int splitFrame, int startFrame, int endFrame)
+{
+    const int durationFrames = endFrame - startFrame;
+    if (durationFrames <= 0)
+        return 0.5;
+
+    const double ratio =
+        static_cast<double>(splitFrame - startFrame) /
+        static_cast<double>(durationFrames);
+    return std::clamp(ratio, 0.0, 1.0);
+}
+
+int computeSplitIndex(double splitRatio, int size)
+{
+    if (size <= 0)
+        return 0;
+
+    const int splitIndex =
+        static_cast<int>(std::lround(splitRatio * static_cast<double>(size)));
+    return std::clamp(splitIndex, 0, size);
+}
+
+int computeMappedSplitFrame(double splitRatio, int startFrame, int endFrame)
+{
+    const int durationFrames = endFrame - startFrame;
+    if (durationFrames <= 0)
+        return startFrame;
+
+    const int mappedFrame =
+        startFrame +
+        static_cast<int>(std::lround(splitRatio * static_cast<double>(durationFrames)));
+
+    if (durationFrames > 1)
+        return std::clamp(mappedFrame, startFrame + 1, endFrame - 1);
+
+    return std::clamp(mappedFrame, startFrame, endFrame);
+}
+}
 
 Note* NoteSplitter::findNoteAt(float x, float y) {
     if (!project || !coordMapper)
@@ -32,10 +74,16 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
 
     int startFrame = note->getStartFrame();
     int endFrame = note->getEndFrame();
+    const int srcStartFrame = note->getSrcStartFrame();
+    const int srcEndFrame = note->getSrcEndFrame();
 
     // Ensure split point is within note bounds (with margin)
     if (splitFrame <= startFrame + 5 || splitFrame >= endFrame - 5)
         return false;
+
+    const double splitRatio = computeSplitRatio(splitFrame, startFrame, endFrame);
+    const int srcSplitFrame =
+        computeMappedSplitFrame(splitRatio, srcStartFrame, srcEndFrame);
 
     // Store original note data for undo
     Note originalNote = *note;
@@ -94,8 +142,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     Note secondNote;
     secondNote.setStartFrame(splitFrame);
     secondNote.setEndFrame(endFrame);
-    secondNote.setSrcStartFrame(splitFrame);
-    secondNote.setSrcEndFrame(endFrame);
+    secondNote.setSrcStartFrame(srcSplitFrame);
+    secondNote.setSrcEndFrame(srcEndFrame);
     secondNote.setMidiNote(note->getMidiNote());
     secondNote.setLyric(note->getLyric());
     secondNote.setPitchOffset(0.0f);
@@ -103,8 +151,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split clip waveform if available
     if (note->hasClipWaveform()) {
         const auto& clip = note->getClipWaveform();
-        int splitOffset = (splitFrame - startFrame) * HOP_SIZE;
-        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(clip.size())));
+        int splitOffset =
+            computeSplitIndex(splitRatio, static_cast<int>(clip.size()));
         std::vector<float> leftClip(clip.begin(), clip.begin() + splitOffset);
         std::vector<float> rightClip(clip.begin() + splitOffset, clip.end());
         note->setClipWaveform(std::move(leftClip));
@@ -114,8 +162,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split source clip waveform if available
     if (note->hasSrcClipWaveform()) {
         const auto& srcClip = note->getSrcClipWaveform();
-        int splitOffset = (splitFrame - startFrame) * HOP_SIZE;
-        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(srcClip.size())));
+        int splitOffset =
+            computeSplitIndex(splitRatio, static_cast<int>(srcClip.size()));
         std::vector<float> leftSrcClip(srcClip.begin(), srcClip.begin() + splitOffset);
         std::vector<float> rightSrcClip(srcClip.begin() + splitOffset, srcClip.end());
         note->setSrcClipWaveform(std::move(leftSrcClip));
@@ -125,8 +173,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split clip mel if available
     if (note->hasClipMel()) {
         const auto& mel = note->getClipMel();
-        int splitOffset = splitFrame - startFrame;
-        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(mel.size())));
+        int splitOffset =
+            computeSplitIndex(splitRatio, static_cast<int>(mel.size()));
         std::vector<std::vector<float>> leftMel(mel.begin(), mel.begin() + splitOffset);
         std::vector<std::vector<float>> rightMel(mel.begin() + splitOffset, mel.end());
         note->setClipMel(std::move(leftMel));
@@ -136,8 +184,8 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
     // Split originalDeltaPitch if available (pristine curve for non-destructive stretch)
     if (note->hasOriginalDeltaPitch()) {
         const auto& origDelta = note->getOriginalDeltaPitch();
-        int splitOffset = splitFrame - startFrame;
-        splitOffset = std::max(0, std::min(splitOffset, static_cast<int>(origDelta.size())));
+        int splitOffset =
+            computeSplitIndex(splitRatio, static_cast<int>(origDelta.size()));
         std::vector<float> leftDelta(origDelta.begin(), origDelta.begin() + splitOffset);
         std::vector<float> rightDelta(origDelta.begin() + splitOffset, origDelta.end());
         note->setOriginalDeltaPitch(std::move(leftDelta));
@@ -172,7 +220,11 @@ bool NoteSplitter::splitNoteAtFrame(Note* note, int splitFrame) {
 
     // Modify the first note (left part)
     note->setEndFrame(splitFrame);
-    note->setSrcEndFrame(splitFrame);
+    note->setSrcEndFrame(srcSplitFrame);
+    note->markDirty();
+    note->markSynthDirty();
+    secondNote.markDirty();
+    secondNote.markSynthDirty();
 
     // Save first note BEFORE addNote (addNote may invalidate note pointer due to vector reallocation)
     Note firstNote = *note;

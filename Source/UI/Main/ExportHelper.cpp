@@ -163,12 +163,13 @@ public:
                         std::function<void(std::optional<ExportSettings>)> done)
       : onDone(std::move(done)) {
     addAndMakeVisible(title);
-    title.setText("Export Settings", juce::dontSendNotification);
+    title.setText(TR("export.settings_title"), juce::dontSendNotification);
     title.setJustificationType(juce::Justification::centredLeft);
     title.setColour(juce::Label::textColourId, APP_COLOR_TEXT_PRIMARY);
     title.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
 
-    setupCombo(formatBox, formatLabel, "Format", {"WAV", "FLAC", "AIFF", "OGG"}, 1);
+    setupCombo(formatBox, formatLabel, TR("export.format"),
+               {"WAV", "FLAC", "AIFF", "OGG"}, 1);
 
     int srId = 3;
     if (inputSampleRate >= 47000)
@@ -179,17 +180,19 @@ public:
       srId = 2;
     else
       srId = 1;
-    setupCombo(sampleRateBox, sampleRateLabel, "Sample Rate",
+    setupCombo(sampleRateBox, sampleRateLabel, TR("settings.sample_rate"),
                {"22050", "32000", "44100", "48000"}, srId);
-    setupCombo(bitDepthBox, bitDepthLabel, "Bit Depth", {"16", "24", "32"}, 1);
-    setupCombo(bitrateBox, bitrateLabel, "Bitrate (kbps)",
+    setupCombo(bitDepthBox, bitDepthLabel, TR("export.bit_depth"),
+               {"16", "24", "32"}, 1);
+    setupCombo(bitrateBox, bitrateLabel, TR("export.bitrate"),
                {"64", "96", "128", "160", "192", "256", "320"}, 5);
-    setupCombo(channelsBox, channelsLabel, "Channels", {"Mono", "Stereo"}, 1);
+    setupCombo(channelsBox, channelsLabel, TR("settings.output_channels"),
+               {TR("settings.mono"), TR("settings.stereo")}, 1);
 
     addAndMakeVisible(cancelButton);
     addAndMakeVisible(exportButton);
-    cancelButton.setButtonText("Cancel");
-    exportButton.setButtonText("Export");
+    cancelButton.setButtonText(TR("common.cancel"));
+    exportButton.setButtonText(TR("common.export"));
     cancelButton.addListener(this);
     exportButton.addListener(this);
   }

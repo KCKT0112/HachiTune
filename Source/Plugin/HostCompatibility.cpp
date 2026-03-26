@@ -1,4 +1,5 @@
 #include "HostCompatibility.h"
+#include "../Utils/Localization.h"
 
 HostCompatibility::HostInfo HostCompatibility::createHostInfo(HostType type) {
     HostInfo info;
@@ -8,63 +9,63 @@ HostCompatibility::HostInfo HostCompatibility::createHostInfo(HostType type) {
         case HostType::StudioOne:
             info.name = "Studio One";
             info.supportsARA = true;
-            info.notes = "ARA supported. Use ARA mode for best integration.";
+            info.notes = TR("host.notes.ara_best_integration");
             break;
 
         case HostType::Cubase:
             info.name = "Cubase";
             info.supportsARA = true;
-            info.notes = "ARA supported.";
+            info.notes = TR("host.notes.ara_supported");
             break;
 
         case HostType::LogicPro:
             info.name = "Logic Pro";
             info.supportsARA = true;
-            info.notes = "ARA supported (AU format).";
+            info.notes = TR("host.notes.ara_supported_au");
             break;
 
         case HostType::ProTools:
             info.name = "Pro Tools";
             info.supportsARA = true;
-            info.notes = "ARA supported (AAX format).";
+            info.notes = TR("host.notes.ara_supported_aax");
             break;
 
         case HostType::Reaper:
             info.name = "REAPER";
             info.supportsARA = true;
-            info.notes = "ARA supported.";
+            info.notes = TR("host.notes.ara_supported");
             break;
 
         case HostType::Nuendo:
             info.name = "Nuendo";
             info.supportsARA = true;
-            info.notes = "ARA supported.";
+            info.notes = TR("host.notes.ara_supported");
             break;
 
         case HostType::FLStudio:
             info.name = "FL Studio";
             info.supportsARA = false;
             info.requiresSpecialHandling = true;
-            info.notes = "No ARA support. Uses auto-capture mode.";
+            info.notes = TR("host.notes.no_ara_auto_capture");
             break;
 
         case HostType::AbletonLive:
             info.name = "Ableton Live";
             info.supportsARA = false;
-            info.notes = "No ARA support. Uses auto-capture mode.";
+            info.notes = TR("host.notes.no_ara_auto_capture");
             break;
 
         case HostType::Bitwig:
             info.name = "Bitwig Studio";
             info.supportsARA = false;
-            info.notes = "No ARA support. Uses auto-capture mode.";
+            info.notes = TR("host.notes.no_ara_auto_capture");
             break;
 
         case HostType::Unknown:
         default:
             info.name = "";
             info.supportsARA = false;
-            info.notes = "Unknown host.";
+            info.notes = TR("host.notes.unknown");
             break;
     }
 
@@ -98,7 +99,7 @@ HostCompatibility::HostInfo HostCompatibility::detectHost(juce::AudioProcessor* 
                         HostInfo info;
                         info.type = HostType::Unknown;
                         info.supportsARA = true;
-                        info.notes = "ARA mode active.";
+                        info.notes = TR("host.notes.ara_active");
                         return info;
                     }
                 }
@@ -111,5 +112,6 @@ HostCompatibility::HostInfo HostCompatibility::detectHost(juce::AudioProcessor* 
 }
 
 juce::String HostCompatibility::getRecommendedMode(const HostInfo& info) {
-    return info.supportsARA ? "ARA Mode (Recommended)" : "Non-ARA Mode (Auto-capture)";
+    return info.supportsARA ? TR("host.recommended_ara")
+                            : TR("host.recommended_non_ara");
 }

@@ -3,6 +3,7 @@
 #if JucePlugin_Enable_ARA
 
 #include "../UI/IMainView.h"
+#include "../Utils/Localization.h"
 
 #include <limits>
 
@@ -284,7 +285,7 @@ void HachiTuneDocumentController::processAudioSource(
         return;
       if (state->jobId.load() != jobId)
         return;
-      view->setStatusMessage("ARA Mode - Analyzing...");
+      view->setStatusMessage(TR("host.ara_analyzing"));
       view->setHostAudio(buffer, sourceSampleRate);
     });
   });

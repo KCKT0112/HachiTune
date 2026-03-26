@@ -21,6 +21,10 @@
 
 namespace {
 
+juce::String formatUiPath(const juce::String& path) {
+  return path.replaceCharacter('\\', '/');
+}
+
 std::vector<float> captureNoteDebugCurve(Project* project, Note* note) {
   if (!project || !note || note->isRest()) {
     return {};
@@ -172,6 +176,15 @@ MainComponent::MainComponent(bool enableAudioDevice)
       settingsManager->getShowGameValuesDebug());
   pianoRoll.setShowUvInterpolationDebug(
       settingsManager->getShowUvInterpolationDebug());
+  pianoRoll.setShowVadDebug(settingsManager->getShowVadDebug());
+  pianoRoll.setShowVoicedMaskDebug(
+      settingsManager->getShowVoicedMaskDebug());
+  pianoRoll.setShowDirtyRangeDebug(
+      settingsManager->getShowDirtyRangeDebug());
+  pianoRoll.setShowResynthesisRangeDebug(
+      settingsManager->getShowResynthesisRangeDebug());
+  pianoRoll.setShowBlendMaskDebug(
+      settingsManager->getShowBlendMaskDebug());
   pianoRoll.setShowActualF0Debug(
       settingsManager->getShowActualF0Debug());
   pianoRoll.setShowIdealSmoothingCurveDebug(
@@ -805,8 +818,9 @@ void MainComponent::openRecentFile(const juce::File &file)
 {
   if (!file.existsAsFile())
   {
-    StyledMessageBox::show(this, "Recent file missing",
-                           "File not found:\n" + file.getFullPathName(),
+    StyledMessageBox::show(this, TR("dialog.recent_file_missing"),
+                           TR("dialog.file_not_found") + "\n" +
+                               formatUiPath(file.getFullPathName()),
                            StyledMessageBox::WarningIcon);
     recentFiles.removeString(file.getFullPathName());
     if (settingsManager)
@@ -1548,6 +1562,18 @@ void MainComponent::showSettings()
       if (settingsOverlay)
         settingsOverlay->setVisible(false);
     };
+    settingsOverlay->getSettingsComponent()->onLanguageChanged = [this]()
+    {
+      refreshRecentFilesMenu();
+      if (commandManager)
+        commandManager->commandStatusChanged();
+      pianoRollView.getHNSepLane().refreshLocalizedText();
+      toolbar.repaint();
+      workspace.repaint();
+      pianoRoll.repaint();
+      parameterPanel.repaint();
+      repaint();
+    };
 
     settingsOverlay->getSettingsComponent()->onSettingsChanged = [this]()
     {
@@ -1597,6 +1623,62 @@ void MainComponent::showSettings()
         settingsManager->saveConfig();
       }
       pianoRoll.setShowUvInterpolationDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowVadDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowVadDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowVadDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowVoicedMaskDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowVoicedMaskDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowVoicedMaskDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowDirtyRangeDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowDirtyRangeDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowDirtyRangeDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()
+        ->onShowResynthesisRangeDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowResynthesisRangeDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowResynthesisRangeDebug(show);
+      pianoRoll.repaint();
+    };
+    settingsOverlay->getSettingsComponent()->onShowBlendMaskDebugChanged =
+        [this](bool show)
+    {
+      if (settingsManager)
+      {
+        settingsManager->setShowBlendMaskDebug(show);
+        settingsManager->saveConfig();
+      }
+      pianoRoll.setShowBlendMaskDebug(show);
       pianoRoll.repaint();
     };
     settingsOverlay->getSettingsComponent()->onShowActualF0DebugChanged =

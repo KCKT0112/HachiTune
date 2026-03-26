@@ -64,6 +64,14 @@ public:
   void setShowSegmentsDebug(bool show) { showSegmentsDebug = show; }
   void setShowGameValuesDebug(bool show) { showGameValuesDebug = show; }
   void setShowUvInterpolationDebug(bool show) { showUvInterpolationDebug = show; }
+  void setShowVadDebug(bool show) { showVadDebug = show; }
+  void setShowVoicedMaskDebug(bool show) { showVoicedMaskDebug = show; }
+  void setShowDirtyRangeDebug(bool show) { showDirtyRangeDebug = show; }
+  void setShowResynthesisRangeDebug(bool show)
+  {
+    showResynthesisRangeDebug = show;
+  }
+  void setShowBlendMaskDebug(bool show) { showBlendMaskDebug = show; }
   void setShowActualF0Debug(bool show) { showActualF0Debug = show; }
   void setShowIdealSmoothingCurveDebug(bool show)
   {
@@ -82,6 +90,14 @@ public:
   bool getShowSegmentsDebug() const { return showSegmentsDebug; }
   bool getShowGameValuesDebug() const { return showGameValuesDebug; }
   bool getShowUvInterpolationDebug() const { return showUvInterpolationDebug; }
+  bool getShowVadDebug() const { return showVadDebug; }
+  bool getShowVoicedMaskDebug() const { return showVoicedMaskDebug; }
+  bool getShowDirtyRangeDebug() const { return showDirtyRangeDebug; }
+  bool getShowResynthesisRangeDebug() const
+  {
+    return showResynthesisRangeDebug;
+  }
+  bool getShowBlendMaskDebug() const { return showBlendMaskDebug; }
   bool getShowActualF0Debug() const { return showActualF0Debug; }
   bool getShowIdealSmoothingCurveDebug() const
   {
@@ -130,6 +146,11 @@ private:
   bool showSegmentsDebug = false;
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
+  bool showVadDebug = false;
+  bool showVoicedMaskDebug = false;
+  bool showDirtyRangeDebug = false;
+  bool showResynthesisRangeDebug = false;
+  bool showBlendMaskDebug = false;
   bool showActualF0Debug = false;
   bool showIdealSmoothingCurveDebug = false;
   bool showPitchToolOnMouseMove = true;

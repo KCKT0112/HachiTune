@@ -1,5 +1,11 @@
 #include "MenuHandler.h"
 
+namespace {
+juce::String formatRecentFileDisplayPath(const juce::String& path) {
+    return path.replaceCharacter('\\', '/');
+}
+}
+
 MenuHandler::MenuHandler() = default;
 
 juce::StringArray MenuHandler::getMenuBarNames() {
@@ -41,17 +47,18 @@ juce::PopupMenu MenuHandler::getMenuForIndex(int menuIndex, const juce::String& 
                 menu.addCommandItem(commandManager, CommandIDs::openFile);
                 juce::PopupMenu recentMenu;
                 if (recentFiles.isEmpty()) {
-                    recentMenu.addItem(1, "No Recent Files", false, false);
+                    recentMenu.addItem(1, TR("menu.no_recent_files"), false, false);
                 } else {
                     const int count = juce::jmin(kMaxRecentMenuItems, recentFiles.size());
                     for (int i = 0; i < count; ++i) {
                         juce::File file(recentFiles[i]);
                         const juce::String label =
-                            juce::String(i + 1) + "  " + file.getFullPathName();
+                            juce::String(i + 1) + "  " +
+                            formatRecentFileDisplayPath(file.getFullPathName());
                         recentMenu.addItem(kRecentFileMenuBaseId + i, label);
                     }
                 }
-                menu.addSubMenu("Recent Files", recentMenu);
+                menu.addSubMenu(TR("menu.recent_files"), recentMenu);
                 menu.addCommandItem(commandManager, CommandIDs::saveProject);
                 menu.addSeparator();
                 menu.addCommandItem(commandManager, CommandIDs::exportAudio);

@@ -323,6 +323,8 @@ public:
             if (note.getStartFrame() == firstNote.getStartFrame())
             {
                 note = originalNote;
+                note.markDirty();
+                note.markSynthDirty();
                 break;
             }
         }
@@ -339,9 +341,13 @@ public:
             if (note.getStartFrame() == originalNote.getStartFrame())
             {
                 note = firstNote;
+                note.markDirty();
+                note.markSynthDirty();
                 break;
             }
         }
+        secondNote.markDirty();
+        secondNote.markSynthDirty();
         project->addNote(secondNote);
         if (onChanged)
             onChanged();
