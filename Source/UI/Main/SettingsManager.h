@@ -65,12 +65,44 @@ public:
   void setShowGameValuesDebug(bool show) { showGameValuesDebug = show; }
   void setShowUvInterpolationDebug(bool show) { showUvInterpolationDebug = show; }
   void setShowActualF0Debug(bool show) { showActualF0Debug = show; }
+  void setShowIdealSmoothingCurveDebug(bool show)
+  {
+    showIdealSmoothingCurveDebug = show;
+  }
+  void setShowPitchToolOnMouseMove(bool show)
+  {
+    showPitchToolOnMouseMove = show;
+  }
+  void setShowPitchFilterDebugWindow(bool show)
+  {
+    showPitchFilterDebugWindow = show;
+  }
   bool getShowDeltaPitch() const { return showDeltaPitch; }
   bool getShowBasePitch() const { return showBasePitch; }
   bool getShowSegmentsDebug() const { return showSegmentsDebug; }
   bool getShowGameValuesDebug() const { return showGameValuesDebug; }
   bool getShowUvInterpolationDebug() const { return showUvInterpolationDebug; }
   bool getShowActualF0Debug() const { return showActualF0Debug; }
+  bool getShowIdealSmoothingCurveDebug() const
+  {
+    return showIdealSmoothingCurveDebug;
+  }
+  bool getShowPitchToolOnMouseMove() const
+  {
+    return showPitchToolOnMouseMove;
+  }
+  bool getShowPitchFilterDebugWindow() const
+  {
+    return showPitchFilterDebugWindow;
+  }
+  float getPitchFilterContextSeconds() const
+  {
+    return pitchFilterContextSeconds;
+  }
+  void setPitchFilterContextSeconds(float seconds)
+  {
+    pitchFilterContextSeconds = seconds;
+  }
 
   // Callbacks
   std::function<void()> onSettingsChanged;
@@ -99,6 +131,10 @@ private:
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
   bool showActualF0Debug = false;
+  bool showIdealSmoothingCurveDebug = false;
+  bool showPitchToolOnMouseMove = true;
+  bool showPitchFilterDebugWindow = false;
+  float pitchFilterContextSeconds = 1.0f;
   bool followSystemAudioOutput = true;
   juce::String preferredAudioOutputDevice;
 

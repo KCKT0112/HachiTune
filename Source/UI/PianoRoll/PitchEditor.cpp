@@ -4,6 +4,31 @@
 #include <cmath>
 #include <limits>
 
+namespace {
+
+bool usesBoundarySmoothingPreview(Project& project,
+                                  const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  for (const auto* note : dependentNotes) {
+    if (note != nullptr &&
+        (note->getSmoothLeftFrames() > 0 ||
+         note->getSmoothRightFrames() > 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void rebuildBoundarySmoothingPreview(Project& project,
+                                     const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  PitchCurveProcessor::rebuildBaseFromNotesForDrag(project, dependentNotes);
+}
+
+}  // namespace
+
 PitchEditor::PitchEditor() = default;
 
 Note *PitchEditor::findNoteAt(float x, float y)
@@ -89,7 +114,15 @@ void PitchEditor::updateNoteDrag(float y)
 
   draggedNote->setPitchOffset(deltaSemitones);
   draggedNote->markDirty();
-  applyDragBasePreview(deltaSemitones);
+  if (project != nullptr &&
+      usesBoundarySmoothingPreview(*project, {draggedNote}))
+  {
+    rebuildBoundarySmoothingPreview(*project, {draggedNote});
+  }
+  else
+  {
+    applyDragBasePreview(deltaSemitones);
+  }
 }
 
 void PitchEditor::endNoteDrag()
@@ -192,8 +225,16 @@ void PitchEditor::endNoteDrag()
   }
   else
   {
-    restoreDragBasePreview();
     draggedNote->setPitchOffset(0.0f);
+    if (project != nullptr &&
+        usesBoundarySmoothingPreview(*project, {draggedNote}))
+    {
+      rebuildBoundarySmoothingPreview(*project, {draggedNote});
+    }
+    else
+    {
+      restoreDragBasePreview();
+    }
   }
 
   isDragging = false;
@@ -562,7 +603,15 @@ void PitchEditor::updateMultiNoteDrag(float y)
     note->markDirty();
   }
 
-  applyDragBasePreview(deltaSemitones);
+  if (project != nullptr &&
+      usesBoundarySmoothingPreview(*project, draggedNotes))
+  {
+    rebuildBoundarySmoothingPreview(*project, draggedNotes);
+  }
+  else
+  {
+    applyDragBasePreview(deltaSemitones);
+  }
 }
 
 void PitchEditor::endMultiNoteDrag()
@@ -681,9 +730,17 @@ void PitchEditor::endMultiNoteDrag()
   else
   {
     // No meaningful change: reset pitchOffset
-    restoreDragBasePreview();
     for (auto *note : draggedNotes)
       note->setPitchOffset(0.0f);
+    if (project != nullptr &&
+        usesBoundarySmoothingPreview(*project, draggedNotes))
+    {
+      rebuildBoundarySmoothingPreview(*project, draggedNotes);
+    }
+    else
+    {
+      restoreDragBasePreview();
+    }
   }
 
   isMultiDragging = false;

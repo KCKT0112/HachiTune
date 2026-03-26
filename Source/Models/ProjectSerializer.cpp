@@ -280,6 +280,10 @@ juce::var ProjectSerializer::noteToJson(const Note& note) {
         obj->setProperty("deltaScale", note.getDeltaScale());
     if (std::abs(note.getDeltaOffset()) > 0.0001f)
         obj->setProperty("deltaOffset", note.getDeltaOffset());
+    if (std::abs(note.getHighPassFilterStrength()) > 0.0001f)
+        obj->setProperty("highPassFilterStrength", note.getHighPassFilterStrength());
+    if (std::abs(note.getLowPassFilterStrength()) > 0.0001f)
+        obj->setProperty("lowPassFilterStrength", note.getLowPassFilterStrength());
 
     // Harmonic-noise separation curves (voicing/breath/tension)
     if (note.hasVoicingCurve())
@@ -341,6 +345,10 @@ bool ProjectSerializer::noteFromJson(Note& note, const juce::var& json) {
     // Per-note delta scale/offset
     note.setDeltaScale(static_cast<float>(json.getProperty("deltaScale", 1.0)));
     note.setDeltaOffset(static_cast<float>(json.getProperty("deltaOffset", 0.0)));
+    note.setHighPassFilterStrength(
+        static_cast<float>(json.getProperty("highPassFilterStrength", 0.0)));
+    note.setLowPassFilterStrength(
+        static_cast<float>(json.getProperty("lowPassFilterStrength", 0.0)));
 
     // Harmonic-noise separation curves (voicing/breath/tension)
     auto voicingStr = json.getProperty("voicingCurve", juce::var());

@@ -16,6 +16,8 @@ struct TransformParams
     float midiNote = 0.0f;
     float deltaScale = 1.0f;
     float deltaOffset = 0.0f;
+    float highPassFilterStrength = 0.0f;
+    float lowPassFilterStrength = 0.0f;
 
     TransformParams() = default;
 
@@ -31,6 +33,8 @@ struct TransformParams
         p.midiNote = note.getMidiNote();
         p.deltaScale = note.getDeltaScale();
         p.deltaOffset = note.getDeltaOffset();
+        p.highPassFilterStrength = note.getHighPassFilterStrength();
+        p.lowPassFilterStrength = note.getLowPassFilterStrength();
         return p;
     }
 
@@ -45,6 +49,8 @@ struct TransformParams
         note.setSmoothRightFrames(smoothRightFrames);
         note.setDeltaScale(deltaScale);
         note.setDeltaOffset(deltaOffset);
+        note.setHighPassFilterStrength(highPassFilterStrength);
+        note.setLowPassFilterStrength(lowPassFilterStrength);
     }
 
     bool operator==(const TransformParams& other) const
@@ -56,7 +62,9 @@ struct TransformParams
                smoothRightFrames == other.smoothRightFrames &&
                midiNote == other.midiNote &&
                deltaScale == other.deltaScale &&
-               deltaOffset == other.deltaOffset;
+               deltaOffset == other.deltaOffset &&
+               highPassFilterStrength == other.highPassFilterStrength &&
+               lowPassFilterStrength == other.lowPassFilterStrength;
     }
 
     bool operator!=(const TransformParams& other) const
@@ -72,6 +80,8 @@ struct TransformParams
                smoothLeftFrames == 0 &&
                smoothRightFrames == 0 &&
                deltaScale == 1.0f &&
-               deltaOffset == 0.0f;
+               deltaOffset == 0.0f &&
+               highPassFilterStrength == 0.0f &&
+               lowPassFilterStrength == 0.0f;
     }
 };

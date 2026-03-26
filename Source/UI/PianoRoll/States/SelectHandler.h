@@ -1,17 +1,14 @@
 #pragma once
 
 #include "InteractionHandler.h"
-#include "../../../Undo/F0FrameEdit.h"
 
-#include <limits>
 #include <vector>
 
 class Note;
 
 /**
  * Handles selection, note dragging (single + multi), box selection,
- * delta scale/offset drags, pitch tool handle interactions, and double-click snap.
- * The most complex handler — covers the Select edit mode.
+ * pitch tool handle interactions, and double-click snap.
  */
 class SelectHandler : public InteractionHandler {
 public:
@@ -30,34 +27,12 @@ public:
   bool isActive() const override;
   void cancel() override;
 
-  // ── Rendering-state getters (used by PianoRollComponent draw code) ──
-  bool getIsDeltaScaleDragging() const { return isDeltaScaleDragging; }
-  const std::vector<Note *> &getDeltaScaleTargetNotes() const {
-    return deltaScaleTargetNotes;
-  }
-  float getDeltaScaleFactor() const { return deltaScaleFactor; }
-
-  bool getIsDeltaOffsetDragging() const { return isDeltaOffsetDragging; }
-  const std::vector<Note *> &getDeltaOffsetTargetNotes() const {
-    return deltaOffsetTargetNotes;
-  }
-  float getDeltaOffsetSemitones() const { return deltaOffsetSemitones; }
-
   bool isSingleNoteDragging() const { return isDragging; }
   Note *getDraggedNote() const { return draggedNote; }
 
 private:
   /** Rebuild base pitch, fire edited/finished callbacks, and repaint. */
   void rebuildAndNotify();
-
-  /** Shared init logic for deltaScale / deltaOffset mouseDown. */
-  bool initDeltaDrag(float worldY,
-                     bool &isDraggingOut,
-                     float &dragStartYOut,
-                     std::vector<Note *> &targetNotesOut,
-                     std::vector<F0FrameEdit> &editsOut,
-                     int &minFrameOut,
-                     int &maxFrameOut);
 
   void prepareDragBasePreview();
   void applyDragBasePreview(float pitchOffsetSemitones);
@@ -78,22 +53,4 @@ private:
   std::vector<float> dragPreviewWeights;
   std::vector<float> dragBasePitchSnapshot;
   std::vector<float> dragF0Snapshot;
-
-  // Delta pitch scale drag state
-  bool isDeltaScaleDragging = false;
-  float deltaScaleDragStartY = 0.0f;
-  float deltaScaleFactor = 1.0f;
-  int deltaScaleMinFrame = std::numeric_limits<int>::max();
-  int deltaScaleMaxFrame = std::numeric_limits<int>::min();
-  std::vector<Note *> deltaScaleTargetNotes;
-  std::vector<F0FrameEdit> deltaScaleEdits;
-
-  // Delta pitch offset drag state
-  bool isDeltaOffsetDragging = false;
-  float deltaOffsetDragStartY = 0.0f;
-  float deltaOffsetSemitones = 0.0f;
-  int deltaOffsetMinFrame = std::numeric_limits<int>::max();
-  int deltaOffsetMaxFrame = std::numeric_limits<int>::min();
-  std::vector<Note *> deltaOffsetTargetNotes;
-  std::vector<F0FrameEdit> deltaOffsetEdits;
 };

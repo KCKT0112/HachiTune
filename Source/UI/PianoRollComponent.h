@@ -83,6 +83,7 @@ public:
   void mouseDrag(const juce::MouseEvent &e) override;
   void mouseUp(const juce::MouseEvent &e) override;
   void mouseMove(const juce::MouseEvent &e) override;
+  void mouseExit(const juce::MouseEvent &e) override;
   void mouseDoubleClick(const juce::MouseEvent &e) override;
   void mouseWheelMove(const juce::MouseEvent &e,
                       const juce::MouseWheelDetails &wheel) override;
@@ -119,6 +120,14 @@ public:
   void setPixelsPerSemitone(float pps, float anchorContentY = -1.0f);
   float getPixelsPerSecond() const { return pixelsPerSecond; }
   float getPixelsPerSemitone() const { return pixelsPerSemitone; }
+  void setShowPitchToolOnMouseMove(bool show)
+  {
+    if (showPitchToolOnMouseMove == show)
+      return;
+    showPitchToolOnMouseMove = show;
+    updatePitchToolHandlesFromSelection();
+    repaint();
+  }
 
   // Scale-grid visualization
   void setScaleMode(ScaleMode mode);
@@ -199,6 +208,11 @@ public:
     showActualF0Debug = show;
     repaint();
   }
+  void setShowIdealSmoothingCurveDebug(bool show)
+  {
+    showIdealSmoothingCurveDebug = show;
+    repaint();
+  }
   bool getShowDeltaPitch() const { return showDeltaPitch; }
   bool getShowBasePitch() const { return showBasePitch; }
 
@@ -206,6 +220,10 @@ public:
   std::function<void(Note *)> onNoteSelected;
   std::function<void()> onPitchEdited;
   std::function<void()> onPitchEditFinished; // Called when dragging ends
+  std::function<void(Note*,
+                     const std::vector<float>&,
+                     const FourierPitchFilter::FilterResult&)>
+      onPitchFilterPreviewChanged;
   std::function<void()> onCursorMoved;
   std::function<void(double)> onSeek;
   std::function<void(float)> onZoomChanged;
@@ -273,6 +291,8 @@ private:
   std::unique_ptr<PitchToolHandles> pitchToolHandles;
   std::unique_ptr<PitchToolController> pitchToolController;
   int hoveredPitchToolHandle = -1;
+  Note *hoveredPitchToolNote = nullptr;
+  bool showPitchToolOnMouseMove = true;
 
   float pixelsPerSecond = DEFAULT_PIXELS_PER_SECOND;
   float pixelsPerSemitone = DEFAULT_PIXELS_PER_SEMITONE;
@@ -300,6 +320,7 @@ private:
   bool showGameValuesDebug = false;
   bool showUvInterpolationDebug = false;
   bool showActualF0Debug = false;
+  bool showIdealSmoothingCurveDebug = false;
   bool showScaleColors = true;
   bool snapToSemitoneDrag = false;
   int pitchReferenceHz = 440;

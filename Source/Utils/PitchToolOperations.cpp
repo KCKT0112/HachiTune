@@ -51,56 +51,6 @@ std::vector<float> reduceVariance(const std::vector<float>& deltaPitch,
   return result;
 }
 
-std::vector<float> smoothBoundary(const std::vector<float>& deltaPitch,
-                                  int side,
-                                  int transitionFrames,
-                                  float targetPitch) {
-  if (deltaPitch.empty()) {
-    return {};
-  }
-
-  std::vector<float> result(deltaPitch);
-  if (transitionFrames <= 0 || (side != 0 && side != 1)) {
-    return result;
-  }
-
-  const int clampedFrames = std::max(
-      1, std::min(transitionFrames, static_cast<int>(deltaPitch.size())));
-
-  // Gaussian kernel: sigma = transitionFrames / 2.0
-  // Weight at boundary = 1.0 (full target), weight at edge of transition = ~0.14
-  const float sigma = static_cast<float>(clampedFrames) / 2.0f;
-  const float invTwoSigmaSq = 1.0f / (2.0f * sigma * sigma);
-
-  if (side == 0) {
-    // Left boundary: blend FROM targetPitch TO note's internal curve
-    for (int i = 0; i < clampedFrames; ++i) {
-      // Distance from boundary (frame 0)
-      const float dist = static_cast<float>(i);
-      // Gaussian weight: 1.0 at boundary, decreasing toward interior
-      const float gaussWeight = std::exp(-dist * dist * invTwoSigmaSq);
-      // Blend: high gaussWeight = more targetPitch, low = more original
-      result[static_cast<size_t>(i)] =
-          targetPitch * gaussWeight + deltaPitch[static_cast<size_t>(i)] * (1.0f - gaussWeight);
-    }
-  } else {
-    // Right boundary: blend FROM note's internal curve TO targetPitch
-    const size_t startIndex = deltaPitch.size() - static_cast<size_t>(clampedFrames);
-    for (int i = 0; i < clampedFrames; ++i) {
-      // Distance from boundary (last frame)
-      const float dist = static_cast<float>(clampedFrames - 1 - i);
-      // Gaussian weight: 1.0 at boundary, decreasing toward interior
-      const float gaussWeight = std::exp(-dist * dist * invTwoSigmaSq);
-      const size_t index = startIndex + static_cast<size_t>(i);
-      // Blend: high gaussWeight = more targetPitch, low = more original
-      result[index] =
-          targetPitch * gaussWeight + deltaPitch[index] * (1.0f - gaussWeight);
-    }
-  }
-
-  return result;
-}
-
 float computeMean(const std::vector<float>& deltaPitch) {
   if (deltaPitch.empty()) {
     return 0.0f;
@@ -111,18 +61,15 @@ float computeMean(const std::vector<float>& deltaPitch) {
   return sum / static_cast<float>(deltaPitch.size());
 }
 
-std::vector<float> applyAllTransformations(const std::vector<float>& originalDelta,
-                                           float tiltLeft,
-                                           float tiltRight,
-                                           float varianceScale,
-                                           int smoothLeftFrames,
-                                           int smoothRightFrames,
-                                           const AdjacentNoteContext& adjacentContext) {
+std::vector<float> applyAllTransformations(
+    const std::vector<float>& originalDelta,
+    float tiltLeft,
+    float tiltRight,
+    float varianceScale) {
   if (originalDelta.empty()) {
     return {};
   }
 
-  // Start with the original pristine curve
   std::vector<float> result = originalDelta;
 
   // 1. Apply variance scaling
@@ -142,15 +89,23 @@ std::vector<float> applyAllTransformations(const std::vector<float>& originalDel
     result = tiltDeltaPitch(result, 0.0f, tiltRight);
   }
 
-  // 3. Apply boundary smoothing
-  if (smoothLeftFrames > 0) {
-    const float leftTarget = adjacentContext.hasLeft ? adjacentContext.leftBoundaryDelta : 0.0f;
-    result = smoothBoundary(result, 0, smoothLeftFrames, leftTarget);
-  }
-  
-  if (smoothRightFrames > 0) {
-    const float rightTarget = adjacentContext.hasRight ? adjacentContext.rightBoundaryDelta : 0.0f;
-    result = smoothBoundary(result, 1, smoothRightFrames, rightTarget);
+  return result;
+}
+
+std::vector<float> applyNoteLocalTransformations(
+    const std::vector<float>& originalDelta,
+    const Note& note) {
+  auto result = applyAllTransformations(originalDelta, note.getTiltLeft(),
+                                        note.getTiltRight(),
+                                        note.getVarianceScale());
+
+  const float dScale = note.getDeltaScale();
+  const float dOffset = note.getDeltaOffset();
+  if (std::abs(dScale - 1.0f) > 0.0001f ||
+      std::abs(dOffset) > 0.0001f) {
+    for (auto& value : result) {
+      value = value * dScale + dOffset;
+    }
   }
 
   return result;

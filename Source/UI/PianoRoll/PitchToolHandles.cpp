@@ -2,14 +2,83 @@
 #include <algorithm>
 #include <limits>
 
+namespace {
+
+constexpr float kInwardHitExtent = PitchToolHandles::handleSize * 0.3f;
+
+juce::Rectangle<float> buildSkewedHitBounds(
+    const PitchToolHandles::Handle& handle,
+    float tolerance) {
+  const auto center = handle.bounds.getCentre();
+  const float outwardExtent =
+      std::max(handle.bounds.getWidth(), tolerance);
+  const float tangentialExtent =
+      std::max(handle.bounds.getWidth() * 0.5f, tolerance * 0.5f);
+
+  float leftExtent = tangentialExtent;
+  float rightExtent = tangentialExtent;
+  float upExtent = tangentialExtent;
+  float downExtent = tangentialExtent;
+
+  switch (handle.type) {
+    case PitchToolHandles::HandleType::TiltLeft:
+      leftExtent = outwardExtent;
+      upExtent = outwardExtent;
+      rightExtent = kInwardHitExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::TiltRight:
+      leftExtent = kInwardHitExtent;
+      upExtent = outwardExtent;
+      rightExtent = outwardExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::HighPassLeft:
+      leftExtent = outwardExtent;
+      upExtent = kInwardHitExtent;
+      rightExtent = kInwardHitExtent;
+      downExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::LowPassRight:
+      leftExtent = kInwardHitExtent;
+      upExtent = kInwardHitExtent;
+      rightExtent = outwardExtent;
+      downExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::SmoothLeft:
+      leftExtent = outwardExtent;
+      rightExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::SmoothRight:
+      leftExtent = kInwardHitExtent;
+      rightExtent = outwardExtent;
+      break;
+    case PitchToolHandles::HandleType::ReduceVariance:
+      upExtent = outwardExtent;
+      downExtent = kInwardHitExtent;
+      break;
+    case PitchToolHandles::HandleType::None:
+    default:
+      break;
+  }
+
+  return juce::Rectangle<float>(center.x - leftExtent, center.y - upExtent,
+                                leftExtent + rightExtent,
+                                upExtent + downExtent);
+}
+
+}  // namespace
+
 PitchToolHandles::PitchToolHandles() {
   // Initialize (currently empty, but reserve space)
-  handles.reserve(20);  // Typical max handles for multi-note selection
+  handles.reserve(24);  // Typical max handles for multi-note selection
 }
 
 void PitchToolHandles::updateHandles(const std::vector<Note*>& selectedNotes,
-                                     const CoordinateMapper& mapper) {
-  handles.clear();
+                                     const CoordinateMapper& mapper,
+                                     bool append) {
+  if (!append)
+    handles.clear();
 
   if (selectedNotes.empty())
     return;
@@ -54,22 +123,29 @@ void PitchToolHandles::updateHandles(const std::vector<Note*>& selectedNotes,
 
   float centerX = (leftX + rightX) * 0.5f;
   float centerY = (topY + bottomY) * 0.5f;
+  Note* primaryNote = selectedNotes.size() == 1 ? selectedNotes.front() : nullptr;
 
   // Add Handles
-  // 1. Tilt Left: Left edge, vertically centered
-  addHandle(HandleType::TiltLeft, leftX, centerY);
+  // 1. Smooth Left: Left edge, vertically centered
+  addHandle(HandleType::SmoothLeft, leftX, centerY, primaryNote);
 
-  // 2. Tilt Right: Right edge, vertically centered
-  addHandle(HandleType::TiltRight, rightX, centerY);
+  // 2. Smooth Right: Right edge, vertically centered
+  addHandle(HandleType::SmoothRight, rightX, centerY, primaryNote);
 
   // 3. Reduce Variance: Top edge, horizontally centered
-  addHandle(HandleType::ReduceVariance, centerX, topY);
+  addHandle(HandleType::ReduceVariance, centerX, topY, primaryNote);
 
-  // 4. Smooth Left: Top-Left corner
-  addHandle(HandleType::SmoothLeft, leftX, topY);
+  // 4. Tilt Left: Top-Left corner
+  addHandle(HandleType::TiltLeft, leftX, topY, primaryNote);
 
-  // 5. Smooth Right: Top-Right corner
-  addHandle(HandleType::SmoothRight, rightX, topY);
+  // 5. Tilt Right: Top-Right corner
+  addHandle(HandleType::TiltRight, rightX, topY, primaryNote);
+
+  // 6. High-pass filter: Bottom-left corner
+  addHandle(HandleType::HighPassLeft, leftX, bottomY, primaryNote);
+
+  // 7. Low-pass filter: Bottom-right corner
+  addHandle(HandleType::LowPassRight, rightX, bottomY, primaryNote);
 }
 
 void PitchToolHandles::draw(juce::Graphics& g) const {
@@ -77,29 +153,119 @@ void PitchToolHandles::draw(juce::Graphics& g) const {
     const auto& handle = handles[i];
     bool isHovered = (i == hoveredHandleIndex);
 
-    g.setColour(handle.color);
-    
     auto drawBounds = handle.bounds;
-    
-    // Draw filled circle
+    if (isHovered)
+      drawBounds = drawBounds.expanded(1.5f);
+
+    g.setColour(juce::Colours::black.withAlpha(isHovered ? 0.26f : 0.18f));
+    g.fillEllipse(drawBounds.translated(0.0f, 1.5f));
+
+    g.setColour(handle.color.withMultipliedSaturation(isHovered ? 1.1f : 1.0f));
     g.fillEllipse(drawBounds);
-    
-    // Draw outline for better visibility against note backgrounds
-    g.setColour(handle.color.darker(0.3f));
-    g.drawEllipse(drawBounds, 1.0f);
+
+    g.setColour(juce::Colours::white.withAlpha(isHovered ? 0.95f : 0.9f));
+    g.drawEllipse(drawBounds, 1.2f);
+
+    const auto iconBounds = drawBounds.reduced(drawBounds.getWidth() * 0.26f);
+    g.setColour(juce::Colours::white.withAlpha(0.95f));
+
+    switch (handle.type) {
+      case HandleType::TiltLeft:
+      {
+        g.drawLine(iconBounds.getRight(), iconBounds.getY(),
+                   iconBounds.getX(), iconBounds.getBottom(), 1.8f);
+        g.drawLine(iconBounds.getX(), iconBounds.getBottom(),
+                   iconBounds.getX() + 2.4f, iconBounds.getBottom() - 3.0f, 1.8f);
+        g.drawLine(iconBounds.getX(), iconBounds.getBottom(),
+                   iconBounds.getX() + 3.2f, iconBounds.getBottom() + 0.2f, 1.8f);
+        break;
+      }
+      case HandleType::TiltRight:
+      {
+        g.drawLine(iconBounds.getX(), iconBounds.getY(),
+                   iconBounds.getRight(), iconBounds.getBottom(), 1.8f);
+        g.drawLine(iconBounds.getRight(), iconBounds.getBottom(),
+                   iconBounds.getRight() - 2.4f, iconBounds.getBottom() - 3.0f, 1.8f);
+        g.drawLine(iconBounds.getRight(), iconBounds.getBottom(),
+                   iconBounds.getRight() - 3.2f, iconBounds.getBottom() + 0.2f, 1.8f);
+        break;
+      }
+      case HandleType::ReduceVariance:
+      {
+        const float cx = iconBounds.getCentreX();
+        const float cy = iconBounds.getCentreY();
+        g.drawLine(iconBounds.getX(), cy, iconBounds.getRight(), cy, 1.8f);
+        g.drawLine(cx, iconBounds.getY() + 1.0f, cx, iconBounds.getBottom() - 1.0f,
+                   1.8f);
+        break;
+      }
+      case HandleType::SmoothLeft:
+      case HandleType::SmoothRight:
+      {
+        juce::Path arc;
+        if (handle.type == HandleType::SmoothLeft)
+          arc.startNewSubPath(iconBounds.getRight(), iconBounds.getY() + 1.0f);
+        else
+          arc.startNewSubPath(iconBounds.getX(), iconBounds.getY() + 1.0f);
+
+        const float controlX = handle.type == HandleType::SmoothLeft
+                                   ? iconBounds.getX()
+                                   : iconBounds.getRight();
+        const float endX = handle.type == HandleType::SmoothLeft
+                               ? iconBounds.getX()
+                               : iconBounds.getRight();
+        arc.quadraticTo(controlX, iconBounds.getCentreY(),
+                        endX, iconBounds.getBottom() - 1.0f);
+        g.strokePath(arc, juce::PathStrokeType(1.8f));
+        break;
+      }
+      case HandleType::HighPassLeft:
+      {
+        const float lowY = iconBounds.getBottom() - 1.0f;
+        const float highY = iconBounds.getY() + 1.0f;
+        const float stepX = iconBounds.getX() + iconBounds.getWidth() * 0.42f;
+        g.drawLine(iconBounds.getX(), lowY, stepX, lowY, 1.8f);
+        g.drawLine(stepX, lowY, stepX, highY, 1.8f);
+        g.drawLine(stepX, highY, iconBounds.getRight(), highY, 1.8f);
+        break;
+      }
+      case HandleType::LowPassRight:
+      {
+        const float highY = iconBounds.getY() + 1.0f;
+        const float lowY = iconBounds.getBottom() - 1.0f;
+        const float stepX = iconBounds.getX() + iconBounds.getWidth() * 0.58f;
+        g.drawLine(iconBounds.getX(), highY, stepX, highY, 1.8f);
+        g.drawLine(stepX, highY, stepX, lowY, 1.8f);
+        g.drawLine(stepX, lowY, iconBounds.getRight(), lowY, 1.8f);
+        break;
+      }
+      case HandleType::None:
+      default:
+        break;
+    }
   }
 }
 
 int PitchToolHandles::hitTest(float worldX, float worldY, float tolerance) const {
+  int bestIndex = -1;
+  float bestDistance = std::numeric_limits<float>::max();
+  const auto point = juce::Point<float>(worldX, worldY);
+
   for (int i = 0; i < static_cast<int>(handles.size()); ++i) {
-    auto center = handles[i].bounds.getCentre();
-    float distance = center.getDistanceFrom(juce::Point<float>(worldX, worldY));
-    
-    if (distance <= tolerance) {
-      return i;
+    const auto hitBounds = buildSkewedHitBounds(handles[i], tolerance);
+    if (!hitBounds.contains(point))
+      continue;
+
+    const auto center = handles[i].bounds.getCentre();
+    const float distance = center.getDistanceFrom(point);
+    if (distance < bestDistance - 0.001f ||
+        (std::abs(distance - bestDistance) < 0.001f && i > bestIndex)) {
+      bestDistance = distance;
+      bestIndex = i;
     }
   }
-  return -1;
+
+  return bestIndex;
 }
 
 void PitchToolHandles::addHandle(HandleType type, float worldX, float worldY, Note* note) {
@@ -109,9 +275,9 @@ void PitchToolHandles::addHandle(HandleType type, float worldX, float worldY, No
   h.color = getColorForType(type);
   
   // Center the handle bounds on the coordinate (now in world space)
-  float halfSize = HANDLE_SIZE * 0.5f;
+  float halfSize = handleSize * 0.5f;
   h.bounds = juce::Rectangle<float>(worldX - halfSize, worldY - halfSize, 
-                                   HANDLE_SIZE, HANDLE_SIZE);
+                                   handleSize, handleSize);
   
   handles.push_back(h);
 }
@@ -128,6 +294,12 @@ juce::Colour PitchToolHandles::getColorForType(HandleType type) const {
     case HandleType::SmoothLeft:
     case HandleType::SmoothRight:
       return juce::Colours::cyan; // "Smooth" implies liquid/soft -> cyan/blue
+
+    case HandleType::HighPassLeft:
+      return juce::Colours::yellowgreen;
+
+    case HandleType::LowPassRight:
+      return juce::Colours::deepskyblue;
       
     default:
       return juce::Colours::white;

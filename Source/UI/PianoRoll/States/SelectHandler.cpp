@@ -8,6 +8,87 @@
 
 #include <unordered_set>
 
+namespace {
+
+bool usesBoundarySmoothingPreview(Project& project,
+                                  const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  for (const auto* note : dependentNotes) {
+    if (note != nullptr &&
+        (note->getSmoothLeftFrames() > 0 ||
+         note->getSmoothRightFrames() > 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void rebuildBoundarySmoothingPreview(Project& project,
+                                     const std::vector<Note*>& notes) {
+  const auto dependentNotes =
+      PitchCurveProcessor::collectDependentNotes(project, notes);
+  PitchCurveProcessor::rebuildBaseFromNotesForDrag(project, dependentNotes);
+}
+
+struct BoundaryResetOperation {
+  Note* editedNote = nullptr;
+  Note* partnerNote = nullptr;
+  bool editLeftSide = false;
+};
+
+std::vector<BoundaryResetOperation> collectSelectedBoundaryResetOperations(
+    Project& project,
+    const std::vector<Note*>& selectedNotes,
+    PitchToolHandles::HandleType handleType) {
+  if (selectedNotes.size() < 2) {
+    return {};
+  }
+
+  std::unordered_set<Note*> selectedSet;
+  selectedSet.reserve(selectedNotes.size());
+  for (auto* note : selectedNotes) {
+    if (note && !note->isRest()) {
+      selectedSet.insert(note);
+    }
+  }
+
+  if (selectedSet.size() < 2) {
+    return {};
+  }
+
+  std::vector<BoundaryResetOperation> operations;
+  const Note* previousNonRest = nullptr;
+
+  for (const auto& note : project.getNotes()) {
+    if (note.isRest()) {
+      continue;
+    }
+
+    if (previousNonRest != nullptr &&
+        selectedSet.count(const_cast<Note*>(previousNonRest)) > 0 &&
+        selectedSet.count(const_cast<Note*>(&note)) > 0) {
+      BoundaryResetOperation operation;
+      if (handleType == PitchToolHandles::HandleType::SmoothRight) {
+        operation.editedNote = const_cast<Note*>(previousNonRest);
+        operation.partnerNote = const_cast<Note*>(&note);
+        operation.editLeftSide = false;
+      } else {
+        operation.editedNote = const_cast<Note*>(&note);
+        operation.partnerNote = const_cast<Note*>(previousNonRest);
+        operation.editLeftSide = true;
+      }
+      operations.push_back(operation);
+    }
+
+    previousNonRest = &note;
+  }
+
+  return operations;
+}
+
+}  // namespace
+
 SelectHandler::SelectHandler(PianoRollComponent &owner)
     : InteractionHandler(owner) {}
 
@@ -28,107 +109,6 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
             owner_.getSelectedNotes(), *owner_.coordMapper))
     {
       return true;
-    }
-  }
-
-  // Delta pitch scale/offset handle drag start
-  {
-    auto selectedNotes = project->getSelectedNotes();
-    if (!selectedNotes.empty())
-    {
-      auto getScaleHandleBounds = [](float x, float y, float w,
-                                     float h) -> juce::Rectangle<float>
-      {
-        constexpr float localOutlinePadding = 2.0f;
-        constexpr float localHandleWidth = 18.0f;
-        constexpr float localHandleHeight = 10.0f;
-        constexpr float localHandleGap = 4.0f;
-        constexpr float localHandleSpacing = 6.0f;
-        const float centerX = x + w * 0.5f;
-        const float groupWidth =
-            localHandleWidth * 2.0f + localHandleSpacing;
-        const float groupLeft = centerX - groupWidth * 0.5f;
-        const float handleX = groupLeft;
-        const float handleY =
-            y + h + localOutlinePadding + localHandleGap;
-        return {handleX, handleY, localHandleWidth, localHandleHeight};
-      };
-      auto getOffsetHandleBounds =
-          [&getScaleHandleBounds](float x, float y, float w,
-                                  float h) -> juce::Rectangle<float>
-      {
-        constexpr float localHandleSpacing = 6.0f;
-        auto scaleBounds = getScaleHandleBounds(x, y, w, h);
-        return {scaleBounds.getRight() + localHandleSpacing,
-                scaleBounds.getY(), scaleBounds.getWidth(),
-                scaleBounds.getHeight()};
-      };
-
-      enum class DeltaHandleHit
-      {
-        None,
-        Scale,
-        Offset
-      };
-      DeltaHandleHit hitHandle = DeltaHandleHit::None;
-      for (auto *selected : selectedNotes)
-      {
-        if (!selected || selected->isRest())
-          continue;
-        const float x =
-            framesToSeconds(selected->getStartFrame()) *
-            owner_.pixelsPerSecond;
-        const float w = std::max(
-            framesToSeconds(selected->getDurationFrames()) *
-                owner_.pixelsPerSecond,
-            4.0f);
-        const float h = owner_.pixelsPerSemitone;
-        const float baseGridCenterY =
-            owner_.midiToY(selected->getMidiNote()) +
-            owner_.pixelsPerSemitone * 0.5f;
-        const float pitchOffsetPixels =
-            -selected->getPitchOffset() * owner_.pixelsPerSemitone;
-        const float y =
-            baseGridCenterY + pitchOffsetPixels - h * 0.5f;
-        const auto scaleBounds = getScaleHandleBounds(x, y, w, h);
-        const auto offsetBounds = getOffsetHandleBounds(x, y, w, h);
-        if (scaleBounds.expanded(2.0f, 2.0f).contains(worldX, worldY))
-        {
-          hitHandle = DeltaHandleHit::Scale;
-          break;
-        }
-        if (offsetBounds.expanded(2.0f, 2.0f).contains(worldX, worldY))
-        {
-          hitHandle = DeltaHandleHit::Offset;
-          break;
-        }
-      }
-
-      if (hitHandle == DeltaHandleHit::Scale)
-      {
-        deltaScaleFactor = 1.0f;
-        if (initDeltaDrag(worldY, isDeltaScaleDragging,
-                          deltaScaleDragStartY, deltaScaleTargetNotes,
-                          deltaScaleEdits, deltaScaleMinFrame,
-                          deltaScaleMaxFrame))
-        {
-          owner_.repaint();
-          return true;
-        }
-      }
-
-      if (hitHandle == DeltaHandleHit::Offset)
-      {
-        deltaOffsetSemitones = 0.0f;
-        if (initDeltaDrag(worldY, isDeltaOffsetDragging,
-                          deltaOffsetDragStartY, deltaOffsetTargetNotes,
-                          deltaOffsetEdits, deltaOffsetMinFrame,
-                          deltaOffsetMaxFrame))
-        {
-          owner_.repaint();
-          return true;
-        }
-      }
     }
   }
 
@@ -205,6 +185,7 @@ bool SelectHandler::mouseDown(const juce::MouseEvent &e, float worldX,
   {
     // Clicked on empty area - start box selection
     project->deselectAllNotes();
+    owner_.hoveredPitchToolNote = nullptr;
     owner_.updatePitchToolHandlesFromSelection();
     owner_.boxSelector->startSelection(worldX, worldY);
     owner_.repaint();
@@ -247,127 +228,6 @@ bool SelectHandler::mouseDrag(const juce::MouseEvent &e, float worldX,
     }
   }
 
-  // Delta scale drag
-  if (isDeltaScaleDragging)
-  {
-    float deltaY = deltaScaleDragStartY - worldY;
-    float newFactor =
-        juce::jlimit(0.0f, 4.0f, 1.0f + deltaY * 0.01f);
-
-    if (std::abs(newFactor - deltaScaleFactor) > 0.0001f)
-    {
-      deltaScaleFactor = newFactor;
-      auto &audioData = project->getAudioData();
-
-      for (auto &edit : deltaScaleEdits)
-      {
-        if (edit.idx < 0 ||
-            edit.idx >=
-                static_cast<int>(audioData.deltaPitch.size()))
-          continue;
-
-        const float newDelta = edit.oldDelta * deltaScaleFactor;
-        edit.newDelta = newDelta;
-        audioData.deltaPitch[static_cast<size_t>(edit.idx)] =
-            newDelta;
-
-        float newF0 = edit.oldF0;
-        if (!edit.oldVoiced)
-        {
-          newF0 = 0.0f;
-        }
-        else
-        {
-          float baseMidi = 0.0f;
-          bool hasBase = false;
-          if (edit.idx >= 0 &&
-              edit.idx <
-                  static_cast<int>(audioData.basePitch.size()))
-          {
-            baseMidi =
-                audioData.basePitch[static_cast<size_t>(edit.idx)];
-            hasBase = true;
-          }
-          else if (edit.oldF0 > 0.0f)
-          {
-            baseMidi = freqToMidi(edit.oldF0) - edit.oldDelta;
-            hasBase = true;
-          }
-          if (hasBase)
-            newF0 = midiToFreq(baseMidi + newDelta);
-        }
-
-        if (edit.idx < static_cast<int>(audioData.f0.size()))
-          audioData.f0[static_cast<size_t>(edit.idx)] = newF0;
-        edit.newF0 = newF0;
-      }
-    }
-
-    if (shouldRepaint)
-    {
-      owner_.repaint();
-      owner_.lastDragRepaintTime = now;
-    }
-    return true;
-  }
-
-  // Delta offset drag
-  if (isDeltaOffsetDragging)
-  {
-    deltaOffsetSemitones =
-        (deltaOffsetDragStartY - worldY) / owner_.pixelsPerSemitone;
-    auto &audioData = project->getAudioData();
-
-    for (auto &edit : deltaOffsetEdits)
-    {
-      if (edit.idx < 0 ||
-          edit.idx >=
-              static_cast<int>(audioData.deltaPitch.size()))
-        continue;
-
-      const float newDelta = edit.oldDelta + deltaOffsetSemitones;
-      edit.newDelta = newDelta;
-      audioData.deltaPitch[static_cast<size_t>(edit.idx)] = newDelta;
-
-      float newF0 = edit.oldF0;
-      if (!edit.oldVoiced)
-      {
-        newF0 = 0.0f;
-      }
-      else
-      {
-        float baseMidi = 0.0f;
-        bool hasBase = false;
-        if (edit.idx >= 0 &&
-            edit.idx <
-                static_cast<int>(audioData.basePitch.size()))
-        {
-          baseMidi =
-              audioData.basePitch[static_cast<size_t>(edit.idx)];
-          hasBase = true;
-        }
-        else if (edit.oldF0 > 0.0f)
-        {
-          baseMidi = freqToMidi(edit.oldF0) - edit.oldDelta;
-          hasBase = true;
-        }
-        if (hasBase)
-          newF0 = midiToFreq(baseMidi + newDelta);
-      }
-
-      if (edit.idx < static_cast<int>(audioData.f0.size()))
-        audioData.f0[static_cast<size_t>(edit.idx)] = newF0;
-      edit.newF0 = newF0;
-    }
-
-    if (shouldRepaint)
-    {
-      owner_.repaint();
-      owner_.lastDragRepaintTime = now;
-    }
-    return true;
-  }
-
   // Box selection
   if (owner_.boxSelector->isSelecting())
   {
@@ -408,7 +268,14 @@ bool SelectHandler::mouseDrag(const juce::MouseEvent &e, float worldX,
 
     draggedNote->setPitchOffset(deltaSemitones);
     draggedNote->markDirty();
-    applyDragBasePreview(deltaSemitones);
+    if (usesBoundarySmoothingPreview(*project, {draggedNote}))
+    {
+      rebuildBoundarySmoothingPreview(*project, {draggedNote});
+    }
+    else
+    {
+      applyDragBasePreview(deltaSemitones);
+    }
 
     // Update handle positions to follow notes during drag
     owner_.updatePitchToolHandlesFromSelection();
@@ -448,183 +315,6 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
       owner_.onPitchEdited();
     if (owner_.onPitchEditFinished)
       owner_.onPitchEditFinished();
-    owner_.repaint();
-    return true;
-  }
-
-  // Delta scale commit
-  if (isDeltaScaleDragging)
-  {
-    const bool hasChange =
-        std::abs(deltaScaleFactor - 1.0f) >= 0.001f;
-    auto &audioData = project->getAudioData();
-
-    if (!hasChange)
-    {
-      // No meaningful change: restore global arrays from captured old values
-      for (const auto &edit : deltaScaleEdits)
-      {
-        if (edit.idx >= 0 &&
-            edit.idx <
-                static_cast<int>(audioData.deltaPitch.size()))
-          audioData.deltaPitch[static_cast<size_t>(edit.idx)] =
-              edit.oldDelta;
-        if (edit.idx >= 0 &&
-            edit.idx < static_cast<int>(audioData.f0.size()))
-          audioData.f0[static_cast<size_t>(edit.idx)] = edit.oldF0;
-      }
-    }
-    else if (!deltaScaleTargetNotes.empty())
-    {
-      // Capture old per-note params BEFORE updating
-      std::vector<TransformParams> oldParams;
-      oldParams.reserve(deltaScaleTargetNotes.size());
-      for (auto *note : deltaScaleTargetNotes)
-        oldParams.push_back(note ? TransformParams::fromNote(*note) : TransformParams{});
-
-      // Update per-note deltaScale/deltaOffset
-      for (auto *note : deltaScaleTargetNotes)
-      {
-        if (!note)
-          continue;
-        note->setDeltaScale(note->getDeltaScale() * deltaScaleFactor);
-        note->setDeltaOffset(note->getDeltaOffset() * deltaScaleFactor);
-        note->markDirty();
-      }
-
-      // Rebuild global arrays from per-note data (ensures consistency)
-      PitchCurveProcessor::rebuildBaseFromNotes(*project);
-
-      // Capture new per-note params AFTER updating
-      std::vector<TransformParams> newParams;
-      newParams.reserve(deltaScaleTargetNotes.size());
-      for (auto *note : deltaScaleTargetNotes)
-        newParams.push_back(note ? TransformParams::fromNote(*note) : TransformParams{});
-
-      // Set dirty range for synthesis
-      const int f0Size = static_cast<int>(audioData.f0.size());
-      const int smoothStart =
-          std::max(0, deltaScaleMinFrame - 60);
-      const int smoothEnd =
-          std::min(f0Size, deltaScaleMaxFrame + 60);
-      project->setF0DirtyRange(smoothStart, smoothEnd);
-
-      // Create undo action using PitchToolAction (saves per-note params)
-      if (owner_.undoManager)
-      {
-        auto *ownerPtr = &owner_;
-        auto onRangeChanged = [ownerPtr](int startFrame, int endFrame)
-        {
-          if (ownerPtr->onPitchEditFinished)
-            ownerPtr->onPitchEditFinished();
-        };
-        auto action = std::make_unique<PitchToolAction>(
-            project, deltaScaleTargetNotes, oldParams, newParams,
-            onRangeChanged);
-        owner_.undoManager->addAction(std::move(action));
-      }
-
-      if (owner_.onPitchEdited)
-        owner_.onPitchEdited();
-      if (owner_.onPitchEditFinished)
-        owner_.onPitchEditFinished();
-    }
-
-    isDeltaScaleDragging = false;
-    deltaScaleDragStartY = 0.0f;
-    deltaScaleFactor = 1.0f;
-    deltaScaleMinFrame = std::numeric_limits<int>::max();
-    deltaScaleMaxFrame = std::numeric_limits<int>::min();
-    deltaScaleTargetNotes.clear();
-    deltaScaleEdits.clear();
-    owner_.repaint();
-    return true;
-  }
-
-  // Delta offset commit
-  if (isDeltaOffsetDragging)
-  {
-    const bool hasChange =
-        std::abs(deltaOffsetSemitones) >= 0.001f;
-    auto &audioData = project->getAudioData();
-
-    if (!hasChange)
-    {
-      // No meaningful change: restore global arrays from captured old values
-      for (const auto &edit : deltaOffsetEdits)
-      {
-        if (edit.idx >= 0 &&
-            edit.idx <
-                static_cast<int>(audioData.deltaPitch.size()))
-          audioData.deltaPitch[static_cast<size_t>(edit.idx)] =
-              edit.oldDelta;
-        if (edit.idx >= 0 &&
-            edit.idx < static_cast<int>(audioData.f0.size()))
-          audioData.f0[static_cast<size_t>(edit.idx)] = edit.oldF0;
-      }
-    }
-    else if (!deltaOffsetTargetNotes.empty())
-    {
-      // Capture old per-note params BEFORE updating
-      std::vector<TransformParams> oldParams;
-      oldParams.reserve(deltaOffsetTargetNotes.size());
-      for (auto *note : deltaOffsetTargetNotes)
-        oldParams.push_back(note ? TransformParams::fromNote(*note) : TransformParams{});
-
-      // Update per-note deltaOffset
-      for (auto *note : deltaOffsetTargetNotes)
-      {
-        if (!note)
-          continue;
-        note->setDeltaOffset(note->getDeltaOffset() + deltaOffsetSemitones);
-        note->markDirty();
-      }
-
-      // Rebuild global arrays from per-note data (ensures consistency)
-      PitchCurveProcessor::rebuildBaseFromNotes(*project);
-
-      // Capture new per-note params AFTER updating
-      std::vector<TransformParams> newParams;
-      newParams.reserve(deltaOffsetTargetNotes.size());
-      for (auto *note : deltaOffsetTargetNotes)
-        newParams.push_back(note ? TransformParams::fromNote(*note) : TransformParams{});
-
-      // Set dirty range for synthesis
-      const int f0Size = static_cast<int>(audioData.f0.size());
-      const int smoothStart =
-          std::max(0, deltaOffsetMinFrame - 60);
-      const int smoothEnd =
-          std::min(f0Size, deltaOffsetMaxFrame + 60);
-      project->setF0DirtyRange(smoothStart, smoothEnd);
-
-      // Create undo action using PitchToolAction (saves per-note params)
-      if (owner_.undoManager)
-      {
-        auto *ownerPtr = &owner_;
-        auto onRangeChanged = [ownerPtr](int startFrame, int endFrame)
-        {
-          if (ownerPtr->onPitchEditFinished)
-            ownerPtr->onPitchEditFinished();
-        };
-        auto action = std::make_unique<PitchToolAction>(
-            project, deltaOffsetTargetNotes, oldParams, newParams,
-            onRangeChanged);
-        owner_.undoManager->addAction(std::move(action));
-      }
-
-      if (owner_.onPitchEdited)
-        owner_.onPitchEdited();
-      if (owner_.onPitchEditFinished)
-        owner_.onPitchEditFinished();
-    }
-
-    isDeltaOffsetDragging = false;
-    deltaOffsetDragStartY = 0.0f;
-    deltaOffsetSemitones = 0.0f;
-    deltaOffsetMinFrame = std::numeric_limits<int>::max();
-    deltaOffsetMaxFrame = std::numeric_limits<int>::min();
-    deltaOffsetTargetNotes.clear();
-    deltaOffsetEdits.clear();
     owner_.repaint();
     return true;
   }
@@ -768,8 +458,15 @@ bool SelectHandler::mouseUp(const juce::MouseEvent &e, float worldX,
     else
     {
       // No meaningful change: reset and repaint
-      restoreDragBasePreview();
       draggedNote->setPitchOffset(0.0f);
+      if (usesBoundarySmoothingPreview(*project, {draggedNote}))
+      {
+        rebuildBoundarySmoothingPreview(*project, {draggedNote});
+      }
+      else
+      {
+        restoreDragBasePreview();
+      }
       owner_.repaint();
     }
   }
@@ -818,8 +515,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
     return;
 
   // Check if double-clicking on a pitch tool handle
-  if (owner_.pitchToolHandles &&
-      !project->getSelectedNotes().empty())
+  if (owner_.pitchToolHandles && !owner_.pitchToolHandles->isEmpty())
   {
     int hitIndex =
         owner_.pitchToolHandles->hitTest(worldX, worldY);
@@ -827,21 +523,161 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
     {
       const auto &handle =
           owner_.pitchToolHandles->getHandle(hitIndex);
+      auto targetNotes = [&]() -> std::vector<Note *>
+      {
+        auto findBoundaryPartner = [&](Note* note) -> Note*
+        {
+          if (!note)
+            return nullptr;
 
-      // SmoothLeft/SmoothRight: Toggle smoothing (moved from mouseMove bug fix)
+          auto& allNotes = project->getNotes();
+          auto it = std::find_if(
+              allNotes.begin(), allNotes.end(),
+              [note](const Note& candidate)
+              {
+                return &candidate == note;
+              });
+          if (it == allNotes.end())
+            return nullptr;
+
+          if (handle.type ==
+              PitchToolHandles::HandleType::SmoothLeft)
+          {
+            auto prevIt = it;
+            while (prevIt != allNotes.begin())
+            {
+              --prevIt;
+              if (!prevIt->isRest())
+                return &*prevIt;
+            }
+            return nullptr;
+          }
+
+          if (handle.type ==
+              PitchToolHandles::HandleType::SmoothRight)
+          {
+            auto nextIt = it;
+            ++nextIt;
+            while (nextIt != allNotes.end())
+            {
+              if (!nextIt->isRest())
+                return &*nextIt;
+              ++nextIt;
+            }
+          }
+
+          return nullptr;
+        };
+
+        if (handle.note != nullptr)
+        {
+          if (handle.type ==
+                  PitchToolHandles::HandleType::SmoothLeft ||
+              handle.type ==
+                  PitchToolHandles::HandleType::SmoothRight)
+          {
+            std::vector<Note*> notes{handle.note};
+            if (auto* partner = findBoundaryPartner(handle.note))
+              notes.push_back(partner);
+            return notes;
+          }
+          return {handle.note};
+        }
+        return project->getSelectedNotes();
+      }();
+
+      if (handle.type == PitchToolHandles::HandleType::HighPassLeft ||
+          handle.type == PitchToolHandles::HandleType::LowPassRight)
+      {
+        if (targetNotes.empty())
+          return;
+
+        std::vector<TransformParams> oldParams;
+        std::vector<TransformParams> newParams;
+        oldParams.reserve(targetNotes.size());
+        newParams.reserve(targetNotes.size());
+
+        bool hasChange = false;
+        for (auto* note : targetNotes)
+        {
+          if (note)
+            oldParams.push_back(TransformParams::fromNote(*note));
+          else
+            oldParams.emplace_back();
+        }
+
+        for (auto* note : targetNotes)
+        {
+          if (!note)
+          {
+            newParams.emplace_back();
+            continue;
+          }
+
+          if (handle.type == PitchToolHandles::HandleType::HighPassLeft)
+          {
+            hasChange = hasChange ||
+                        std::abs(note->getHighPassFilterStrength()) > 0.0001f;
+            note->setHighPassFilterStrength(0.0f);
+          }
+          else
+          {
+            hasChange = hasChange ||
+                        std::abs(note->getLowPassFilterStrength()) > 0.0001f;
+            note->setLowPassFilterStrength(0.0f);
+          }
+
+          note->markDirty();
+          note->markSynthDirty();
+          newParams.push_back(TransformParams::fromNote(*note));
+        }
+
+        if (!hasChange)
+          return;
+
+        if (owner_.undoManager)
+        {
+          auto action = std::make_unique<PitchToolAction>(
+              project, targetNotes, oldParams, newParams,
+              [this](int, int)
+              { rebuildAndNotify(); });
+          owner_.undoManager->addAction(std::move(action));
+        }
+
+        rebuildAndNotify();
+        if (owner_.onNoteSelected)
+        {
+          for (auto* note : targetNotes)
+          {
+            if (note != nullptr)
+            {
+              owner_.onNoteSelected(note);
+              break;
+            }
+          }
+        }
+        return;
+      }
+
+      // SmoothLeft/SmoothRight: double-click resets the smoothing range.
       if (handle.type ==
               PitchToolHandles::HandleType::SmoothLeft ||
           handle.type ==
               PitchToolHandles::HandleType::SmoothRight)
       {
-        auto selectedNotes = project->getSelectedNotes();
-        if (!selectedNotes.empty())
+        std::vector<BoundaryResetOperation> boundaryOperations;
+        if (handle.note == nullptr)
+          boundaryOperations = collectSelectedBoundaryResetOperations(
+              *project, targetNotes, handle.type);
+
+        if (!targetNotes.empty() &&
+            (handle.note != nullptr || !boundaryOperations.empty()))
         {
 
           // Capture old params
           std::vector<TransformParams> oldParams;
-          oldParams.reserve(selectedNotes.size());
-          for (auto *note : selectedNotes)
+          oldParams.reserve(targetNotes.size());
+          for (auto *note : targetNotes)
           {
             if (note)
               oldParams.push_back(TransformParams::fromNote(*note));
@@ -849,31 +685,72 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
               oldParams.emplace_back();
           }
 
-          // Apply toggle
-          for (auto *note : selectedNotes)
+          // Reset the shared boundary smoothing. When the handle belongs to a
+          // concrete note, the opposite side of the adjacent note is kept in
+          // sync so the boundary remains a single shared control.
+          if (handle.note != nullptr &&
+              targetNotes.size() >= 1 &&
+              (handle.type ==
+                   PitchToolHandles::HandleType::SmoothLeft ||
+               handle.type ==
+                   PitchToolHandles::HandleType::SmoothRight))
           {
-            if (!note)
-              continue;
+            handle.note->markDirty();
             if (handle.type ==
                 PitchToolHandles::HandleType::SmoothLeft)
             {
-              int current = note->getSmoothLeftFrames();
-              note->setSmoothLeftFrames(
-                  current != 0 ? 0 : 1);
+              handle.note->setSmoothLeftFrames(0);
+              if (targetNotes.size() > 1 && targetNotes[1] != nullptr)
+              {
+                targetNotes[1]->setSmoothRightFrames(0);
+                targetNotes[1]->markDirty();
+              }
             }
             else
             {
-              int current = note->getSmoothRightFrames();
-              note->setSmoothRightFrames(
-                  current != 0 ? 0 : 1);
+              handle.note->setSmoothRightFrames(0);
+              if (targetNotes.size() > 1 && targetNotes[1] != nullptr)
+              {
+                targetNotes[1]->setSmoothLeftFrames(0);
+                targetNotes[1]->markDirty();
+              }
             }
-            note->markDirty();
+          }
+          else
+          {
+            for (const auto& operation : boundaryOperations)
+            {
+              auto* editedNote = operation.editedNote;
+              auto* partnerNote = operation.partnerNote;
+              if (!editedNote)
+                continue;
+
+              if (operation.editLeftSide)
+              {
+                editedNote->setSmoothLeftFrames(0);
+                if (partnerNote)
+                {
+                  partnerNote->setSmoothRightFrames(0);
+                  partnerNote->markDirty();
+                }
+              }
+              else
+              {
+                editedNote->setSmoothRightFrames(0);
+                if (partnerNote)
+                {
+                  partnerNote->setSmoothLeftFrames(0);
+                  partnerNote->markDirty();
+                }
+              }
+              editedNote->markDirty();
+            }
           }
 
           // Capture new params
           std::vector<TransformParams> newParams;
-          newParams.reserve(selectedNotes.size());
-          for (auto *note : selectedNotes)
+          newParams.reserve(targetNotes.size());
+          for (auto *note : targetNotes)
           {
             if (note)
               newParams.push_back(TransformParams::fromNote(*note));
@@ -885,7 +762,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           if (owner_.undoManager)
           {
             auto action = std::make_unique<PitchToolAction>(
-                project, selectedNotes, oldParams, newParams,
+                project, targetNotes, oldParams, newParams,
                 [this](int, int)
                 { rebuildAndNotify(); });
             owner_.undoManager->addAction(std::move(action));
@@ -894,10 +771,14 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
           // Rebuild and update
           PitchCurveProcessor::rebuildBaseFromNotes(*project);
 
+          const auto dependentNotes =
+              PitchCurveProcessor::collectDependentNotes(
+                  *project, targetNotes);
+
           // Mark dirty range
           int minFrame = std::numeric_limits<int>::max();
           int maxFrame = std::numeric_limits<int>::min();
-          for (const auto *note : selectedNotes)
+          for (const auto *note : dependentNotes)
           {
             if (note)
             {
@@ -924,7 +805,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::ReduceVariance)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         float currentScale =
             selectedNotes[0]->getVarianceScale();
@@ -972,7 +855,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::TiltLeft)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         if (owner_.undoManager)
         {
@@ -1024,7 +909,9 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
       if (handle.type ==
           PitchToolHandles::HandleType::TiltRight)
       {
-        auto selectedNotes = project->getSelectedNotes();
+        auto selectedNotes = targetNotes;
+        if (selectedNotes.empty())
+          return;
 
         if (owner_.undoManager)
         {
@@ -1199,7 +1086,7 @@ void SelectHandler::mouseDoubleClick(const juce::MouseEvent &e,
 
 bool SelectHandler::isActive() const
 {
-  return isDragging || isDeltaScaleDragging || isDeltaOffsetDragging ||
+  return isDragging ||
          (owner_.pitchToolController &&
           owner_.pitchToolController->isDragging()) ||
          owner_.boxSelector->isSelecting() ||
@@ -1210,8 +1097,16 @@ void SelectHandler::cancel()
 {
   if (isDragging && draggedNote)
   {
-    restoreDragBasePreview();
     draggedNote->setPitchOffset(0.0f);
+    if (owner_.project &&
+        usesBoundarySmoothingPreview(*owner_.project, {draggedNote}))
+    {
+      rebuildBoundarySmoothingPreview(*owner_.project, {draggedNote});
+    }
+    else
+  {
+    restoreDragBasePreview();
+    }
     isDragging = false;
     draggedNote = nullptr;
     dragPreviewStartFrame = -1;
@@ -1219,50 +1114,6 @@ void SelectHandler::cancel()
     dragPreviewWeights.clear();
     dragBasePitchSnapshot.clear();
     dragF0Snapshot.clear();
-  }
-  if (isDeltaScaleDragging)
-  {
-    auto *project = owner_.project;
-    if (project)
-    {
-      auto &audioData = project->getAudioData();
-      for (const auto &edit : deltaScaleEdits)
-      {
-        if (edit.idx >= 0 &&
-            edit.idx <
-                static_cast<int>(audioData.deltaPitch.size()))
-          audioData.deltaPitch[static_cast<size_t>(edit.idx)] =
-              edit.oldDelta;
-        if (edit.idx >= 0 &&
-            edit.idx < static_cast<int>(audioData.f0.size()))
-          audioData.f0[static_cast<size_t>(edit.idx)] = edit.oldF0;
-      }
-    }
-    isDeltaScaleDragging = false;
-    deltaScaleTargetNotes.clear();
-    deltaScaleEdits.clear();
-  }
-  if (isDeltaOffsetDragging)
-  {
-    auto *project = owner_.project;
-    if (project)
-    {
-      auto &audioData = project->getAudioData();
-      for (const auto &edit : deltaOffsetEdits)
-      {
-        if (edit.idx >= 0 &&
-            edit.idx <
-                static_cast<int>(audioData.deltaPitch.size()))
-          audioData.deltaPitch[static_cast<size_t>(edit.idx)] =
-              edit.oldDelta;
-        if (edit.idx >= 0 &&
-            edit.idx < static_cast<int>(audioData.f0.size()))
-          audioData.f0[static_cast<size_t>(edit.idx)] = edit.oldF0;
-      }
-    }
-    isDeltaOffsetDragging = false;
-    deltaOffsetTargetNotes.clear();
-    deltaOffsetEdits.clear();
   }
   owner_.repaint();
 }
@@ -1277,75 +1128,6 @@ void SelectHandler::rebuildAndNotify()
   if (owner_.onPitchEditFinished)
     owner_.onPitchEditFinished();
   owner_.repaint();
-}
-
-bool SelectHandler::initDeltaDrag(
-    float worldY,
-    bool &isDraggingOut,
-    float &dragStartYOut,
-    std::vector<Note *> &targetNotesOut,
-    std::vector<F0FrameEdit> &editsOut,
-    int &minFrameOut,
-    int &maxFrameOut)
-{
-
-  auto *project = owner_.project;
-  if (!project)
-    return false;
-
-  isDraggingOut = true;
-  dragStartYOut = worldY;
-  targetNotesOut.clear();
-  editsOut.clear();
-  minFrameOut = std::numeric_limits<int>::max();
-  maxFrameOut = std::numeric_limits<int>::min();
-
-  auto &audioData = project->getAudioData();
-  if (audioData.deltaPitch.size() < audioData.f0.size())
-    audioData.deltaPitch.resize(audioData.f0.size(), 0.0f);
-
-  auto selectedNotes = project->getSelectedNotes();
-  std::unordered_set<int> seenFrames;
-  for (auto *selected : selectedNotes)
-  {
-    if (!selected || selected->isRest())
-      continue;
-    targetNotesOut.push_back(selected);
-
-    const int startFrame = std::max(0, selected->getStartFrame());
-    const int endFrame = std::min(
-        selected->getEndFrame(),
-        static_cast<int>(audioData.deltaPitch.size()));
-    for (int frame = startFrame; frame < endFrame; ++frame)
-    {
-      if (!seenFrames.insert(frame).second)
-        continue;
-      F0FrameEdit edit;
-      edit.idx = frame;
-      edit.oldDelta =
-          audioData.deltaPitch[static_cast<size_t>(frame)];
-      if (frame < static_cast<int>(audioData.f0.size()))
-        edit.oldF0 = audioData.f0[static_cast<size_t>(frame)];
-      if (frame < static_cast<int>(audioData.voicedMask.size()))
-        edit.oldVoiced =
-            audioData.voicedMask[static_cast<size_t>(frame)];
-      else
-        edit.oldVoiced = true;
-      edit.newVoiced = edit.oldVoiced;
-      editsOut.push_back(edit);
-      minFrameOut = std::min(minFrameOut, frame);
-      maxFrameOut = std::max(maxFrameOut, frame);
-    }
-  }
-
-  if (editsOut.empty())
-  {
-    isDraggingOut = false;
-    targetNotesOut.clear();
-    return false;
-  }
-
-  return true;
 }
 
 void SelectHandler::prepareDragBasePreview()

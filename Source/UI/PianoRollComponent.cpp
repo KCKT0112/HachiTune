@@ -189,6 +189,13 @@ PianoRollComponent::PianoRollComponent()
     if (onPitchEdited)
       onPitchEdited();
   };
+  pitchToolController->onFilterPreviewChanged =
+      [this](Note* note, const std::vector<float>& sourceCurve,
+             const FourierPitchFilter::FilterResult& result)
+  {
+    if (onPitchFilterPreviewChanged)
+      onPitchFilterPreviewChanged(note, sourceCurve, result);
+  };
 
   // Setup noteSplitter callbacks
   noteSplitter->onNoteSplit = [this]()
@@ -1138,38 +1145,6 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
         w + localOutlinePadding * 2.0f, h + localOutlinePadding * 2.0f,
         outlineCornerRadius, outlineThickness);
   };
-  auto getDeltaScaleHandleBounds = [](float x, float y, float w,
-                                      float h) -> juce::Rectangle<float>
-  {
-    constexpr float localOutlinePadding = 2.0f;
-    constexpr float localHandleWidth = 18.0f;
-    constexpr float localHandleHeight = 10.0f;
-    constexpr float localHandleGap = 4.0f;
-    constexpr float localHandleSpacing = 6.0f;
-    const float centerX = x + w * 0.5f;
-    const float groupWidth = localHandleWidth * 2.0f + localHandleSpacing;
-    const float groupLeft = centerX - groupWidth * 0.5f;
-    const float handleX = groupLeft;
-    const float handleY =
-        y + h + localOutlinePadding + localHandleGap;
-    return {handleX, handleY, localHandleWidth, localHandleHeight};
-  };
-  auto getDeltaOffsetHandleBounds = [](float x, float y, float w,
-                                       float h) -> juce::Rectangle<float>
-  {
-    constexpr float localOutlinePadding = 2.0f;
-    constexpr float localHandleWidth = 18.0f;
-    constexpr float localHandleHeight = 10.0f;
-    constexpr float localHandleGap = 4.0f;
-    constexpr float localHandleSpacing = 6.0f;
-    const float centerX = x + w * 0.5f;
-    const float groupWidth = localHandleWidth * 2.0f + localHandleSpacing;
-    const float groupLeft = centerX - groupWidth * 0.5f;
-    const float handleX = groupLeft + localHandleWidth + localHandleSpacing;
-    const float handleY =
-        y + h + localOutlinePadding + localHandleGap;
-    return {handleX, handleY, localHandleWidth, localHandleHeight};
-  };
 
   const auto &audioData = project->getAudioData();
   const float *globalSamples =
@@ -1397,86 +1372,6 @@ void PianoRollComponent::drawNotes(juce::Graphics &g, NoteRenderPass pass)
     if (drawOverlays && note.isSelected())
     {
       drawSelectedNoteOutline(x, y, renderedWidth, h);
-
-      const auto handleBounds =
-          getDeltaScaleHandleBounds(x, y, renderedWidth, h);
-      const bool handleActive =
-          selectHandler_->getIsDeltaScaleDragging() &&
-          std::find(selectHandler_->getDeltaScaleTargetNotes().begin(),
-                    selectHandler_->getDeltaScaleTargetNotes().end(),
-                    &note) != selectHandler_->getDeltaScaleTargetNotes().end();
-      g.setColour(handleActive ? APP_COLOR_PRIMARY.brighter(0.1f)
-                               : APP_COLOR_PRIMARY.withAlpha(0.9f));
-      g.fillRoundedRectangle(handleBounds, 2.5f);
-      g.setColour(juce::Colours::white.withAlpha(0.95f));
-      g.drawRoundedRectangle(handleBounds, 2.5f, 1.0f);
-
-      const float cx = handleBounds.getCentreX();
-      const float top = handleBounds.getY() + 2.0f;
-      const float bottom = handleBounds.getBottom() - 2.0f;
-      g.drawLine(cx, top + 2.0f, cx, bottom - 2.0f, 1.0f);
-      juce::Path upArrow;
-      upArrow.addTriangle(cx, top, cx - 2.5f, top + 3.5f, cx + 2.5f, top + 3.5f);
-      g.fillPath(upArrow);
-      juce::Path downArrow;
-      downArrow.addTriangle(cx, bottom, cx - 2.5f, bottom - 3.5f,
-                            cx + 2.5f, bottom - 3.5f);
-      g.fillPath(downArrow);
-
-      if (selectHandler_->getIsDeltaScaleDragging() && selectHandler_->getDeltaScaleFactor() > 0.0f)
-      {
-        const juce::String factorText = "x" + juce::String(selectHandler_->getDeltaScaleFactor(), 2);
-        const float infoW = 44.0f;
-        const float infoH = 14.0f;
-        const float infoX = handleBounds.getCentreX() - infoW * 0.5f;
-        const float infoY = handleBounds.getBottom() + 2.0f;
-        g.setColour(juce::Colours::black.withAlpha(0.72f));
-        g.fillRoundedRectangle(infoX, infoY, infoW, infoH, 3.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.95f));
-        g.setFont(juce::FontOptions(10.0f));
-        g.drawFittedText(factorText, static_cast<int>(infoX),
-                         static_cast<int>(infoY), static_cast<int>(infoW),
-                         static_cast<int>(infoH), juce::Justification::centred,
-                         1);
-      }
-
-      const auto offsetHandleBounds =
-          getDeltaOffsetHandleBounds(x, y, renderedWidth, h);
-      const bool offsetHandleActive =
-          selectHandler_->getIsDeltaOffsetDragging() &&
-          std::find(selectHandler_->getDeltaOffsetTargetNotes().begin(),
-                    selectHandler_->getDeltaOffsetTargetNotes().end(),
-                    &note) != selectHandler_->getDeltaOffsetTargetNotes().end();
-      g.setColour(offsetHandleActive ? APP_COLOR_PRIMARY.brighter(0.1f)
-                                     : APP_COLOR_PRIMARY.withAlpha(0.9f));
-      g.fillRoundedRectangle(offsetHandleBounds, 2.5f);
-      g.setColour(juce::Colours::white.withAlpha(0.95f));
-      g.drawRoundedRectangle(offsetHandleBounds, 2.5f, 1.0f);
-      g.setFont(juce::FontOptions(9.0f));
-      g.drawFittedText("+/-", static_cast<int>(offsetHandleBounds.getX()),
-                       static_cast<int>(offsetHandleBounds.getY()),
-                       static_cast<int>(offsetHandleBounds.getWidth()),
-                       static_cast<int>(offsetHandleBounds.getHeight()),
-                       juce::Justification::centred, 1);
-
-      if (selectHandler_->getIsDeltaOffsetDragging())
-      {
-        const juce::String prefix = selectHandler_->getDeltaOffsetSemitones() >= 0.0f ? "+" : "";
-        const juce::String offsetText =
-            prefix + juce::String(selectHandler_->getDeltaOffsetSemitones(), 2) + " st";
-        const float infoW = 56.0f;
-        const float infoH = 14.0f;
-        const float infoX = offsetHandleBounds.getCentreX() - infoW * 0.5f;
-        const float infoY = offsetHandleBounds.getBottom() + 2.0f;
-        g.setColour(juce::Colours::black.withAlpha(0.72f));
-        g.fillRoundedRectangle(infoX, infoY, infoW, infoH, 3.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.95f));
-        g.setFont(juce::FontOptions(10.0f));
-        g.drawFittedText(offsetText, static_cast<int>(infoX),
-                         static_cast<int>(infoY), static_cast<int>(infoW),
-                         static_cast<int>(infoH), juce::Justification::centred,
-                         1);
-      }
     }
 
     const bool isSingleDragged = selectHandler_->isSingleNoteDragging() && selectHandler_->getDraggedNote() == &note;
@@ -1729,6 +1624,59 @@ void PianoRollComponent::drawPitchCurves(juce::Graphics &g)
         if (pathStarted)
           g.strokePath(path, juce::PathStrokeType(2.0f));
       }
+    }
+  }
+
+  if (showIdealSmoothingCurveDebug && audioData.sampleRate > 0)
+  {
+    const double visibleStartTime = scrollX / pixelsPerSecond;
+    const double visibleEndTime =
+        (scrollX + getVisibleContentWidth()) / pixelsPerSecond;
+    const int visStartFrame = std::max(
+        0,
+        static_cast<int>(visibleStartTime * audioData.sampleRate / HOP_SIZE));
+    const int visEndFrame = std::min(
+        static_cast<int>(audioData.f0.size()),
+        static_cast<int>(visibleEndTime * audioData.sampleRate / HOP_SIZE) + 1);
+
+    g.setColour(juce::Colours::gold.withAlpha(0.92f));
+
+    const auto debugSegments =
+        PitchCurveProcessor::collectIdealSmoothingDebugSegments(*project);
+    for (const auto &segment : debugSegments)
+    {
+      juce::Path debugPath;
+      bool pathStarted = false;
+      int previousFrame = -2;
+
+      for (size_t i = 0; i < segment.frames.size(); ++i)
+      {
+        const int frame = segment.frames[i];
+        if (frame < visStartFrame || frame >= visEndFrame)
+          continue;
+
+        const float midi = segment.idealMidiValues[i] + globalOffset;
+        const float x = framesToSeconds(frame) * pixelsPerSecond;
+        const float y = midiToY(midi) + pixelsPerSemitone * 0.5f;
+
+        if (!pathStarted || frame != previousFrame + 1)
+        {
+          if (pathStarted)
+            g.strokePath(debugPath, juce::PathStrokeType(1.4f));
+          debugPath.clear();
+          debugPath.startNewSubPath(x, y);
+          pathStarted = true;
+        }
+        else
+        {
+          debugPath.lineTo(x, y);
+        }
+
+        previousFrame = frame;
+      }
+
+      if (pathStarted)
+        g.strokePath(debugPath, juce::PathStrokeType(1.4f));
     }
   }
 
@@ -2118,11 +2066,55 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
   if (currentHandler_)
     currentHandler_->mouseMove(e, adjustedX, adjustedY);
 
-  // Pitch tool handle hover (uses raw event coordinates, not world-adjusted)
-  if (editMode == EditMode::Select && pitchToolHandles && !pitchToolHandles->isEmpty() &&
+  Note *newHoveredToolNote = nullptr;
+  if (editMode == EditMode::Select && showPitchToolOnMouseMove &&
       e.y >= headerHeight && e.x >= pianoKeysWidth)
   {
-    int hitIndex = pitchToolHandles->hitTest(e.position.x, e.position.y);
+    const float hoverPadding = PitchToolHandles::handleSize * 0.9f;
+
+    if (hoveredPitchToolNote != nullptr && !hoveredPitchToolNote->isRest())
+    {
+      const float noteX =
+          framesToSeconds(hoveredPitchToolNote->getStartFrame()) * pixelsPerSecond;
+      const float noteW = std::max(
+          framesToSeconds(hoveredPitchToolNote->getDurationFrames()) *
+              pixelsPerSecond,
+          4.0f);
+      const float noteH = pixelsPerSemitone;
+      const float baseGridCenterY =
+          midiToY(hoveredPitchToolNote->getMidiNote()) + pixelsPerSemitone * 0.5f;
+      const float pitchOffsetPixels =
+          -hoveredPitchToolNote->getPitchOffset() * pixelsPerSemitone;
+      const float noteY = baseGridCenterY + pitchOffsetPixels - noteH * 0.5f;
+      const auto hoverBounds =
+          juce::Rectangle<float>(noteX, noteY, noteW, noteH)
+              .expanded(hoverPadding, hoverPadding);
+
+      if (hoverBounds.contains(adjustedX, adjustedY))
+        newHoveredToolNote = hoveredPitchToolNote;
+    }
+
+    if (newHoveredToolNote == nullptr)
+    {
+      newHoveredToolNote = findNoteAt(adjustedX, adjustedY);
+      if (newHoveredToolNote != nullptr && newHoveredToolNote->isRest())
+        newHoveredToolNote = nullptr;
+    }
+  }
+
+  const bool hoveredToolNoteChanged = newHoveredToolNote != hoveredPitchToolNote;
+  if (hoveredToolNoteChanged)
+  {
+    hoveredPitchToolNote = newHoveredToolNote;
+    updatePitchToolHandlesFromSelection();
+  }
+
+  // Pitch tool handle hover uses world-adjusted coordinates because the
+  // handle model is stored in the same musical coordinate space as notes.
+  if (editMode == EditMode::Select && pitchToolHandles && !pitchToolHandles->isEmpty() &&
+      e.x >= pianoKeysWidth)
+  {
+    int hitIndex = pitchToolHandles->hitTest(adjustedX, adjustedY);
     if (hitIndex != hoveredPitchToolHandle)
     {
       hoveredPitchToolHandle = hitIndex;
@@ -2137,6 +2129,30 @@ void PianoRollComponent::mouseMove(const juce::MouseEvent &e)
       pitchToolHandles->setHoveredHandleIndex(-1);
     repaint();
   }
+}
+
+void PianoRollComponent::mouseExit(const juce::MouseEvent &e)
+{
+  juce::ignoreUnused(e);
+
+  bool needsRepaint = false;
+  if (hoveredPitchToolHandle != -1)
+  {
+    hoveredPitchToolHandle = -1;
+    if (pitchToolHandles)
+      pitchToolHandles->setHoveredHandleIndex(-1);
+    needsRepaint = true;
+  }
+
+  if (hoveredPitchToolNote != nullptr)
+  {
+    hoveredPitchToolNote = nullptr;
+    updatePitchToolHandlesFromSelection();
+    needsRepaint = true;
+  }
+
+  if (needsRepaint)
+    repaint();
 }
 
 void PianoRollComponent::mouseDoubleClick(const juce::MouseEvent &e)
@@ -2935,12 +2951,32 @@ void PianoRollComponent::updatePitchToolHandlesFromSelection()
   if (!project || editMode != EditMode::Select)
   {
     pitchToolHandles->clear();
+    hoveredPitchToolNote = nullptr;
     hoveredPitchToolHandle = -1;
     pitchToolHandles->setHoveredHandleIndex(-1);
     return;
   }
 
-  pitchToolHandles->updateHandles(getSelectedNotes(), *coordMapper);
+  auto targetNotes = getSelectedNotes();
+  std::vector<Note *> hoverNotes;
+  if (showPitchToolOnMouseMove && hoveredPitchToolNote != nullptr &&
+      std::find(targetNotes.begin(), targetNotes.end(), hoveredPitchToolNote) ==
+          targetNotes.end())
+  {
+    hoverNotes.push_back(hoveredPitchToolNote);
+  }
+
+  if (targetNotes.empty() && hoverNotes.empty())
+  {
+    pitchToolHandles->clear();
+    hoveredPitchToolHandle = -1;
+    pitchToolHandles->setHoveredHandleIndex(-1);
+    return;
+  }
+
+  pitchToolHandles->updateHandles(targetNotes, *coordMapper, false);
+  if (!hoverNotes.empty())
+    pitchToolHandles->updateHandles(hoverNotes, *coordMapper, true);
   if (hoveredPitchToolHandle >=
       static_cast<int>(pitchToolHandles->getHandles().size()))
   {

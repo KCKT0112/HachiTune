@@ -16,6 +16,8 @@ public:
     ReduceVariance,
     SmoothLeft,
     SmoothRight,
+    HighPassLeft,
+    LowPassRight,
     None
   };
 
@@ -27,13 +29,15 @@ public:
   };
 
   PitchToolHandles();
+  static constexpr float handleSize = 11.0f;
 
   /**
    * Update handle positions based on current note selection.
    * Call this when selection changes or viewport moves.
    */
   void updateHandles(const std::vector<Note*>& selectedNotes,
-                     const CoordinateMapper& mapper);
+                     const CoordinateMapper& mapper,
+                     bool append = false);
 
   /**
    * Draw all handles to graphics context.
@@ -44,7 +48,8 @@ public:
    * Hit-test for mouse interaction.
    * @param worldX Mouse X in world coordinates
    * @param worldY Mouse Y in world coordinates
-   * @param tolerance Hit-test radius in pixels (default 12.0)
+   * @param tolerance Outward hit extent in pixels for the handle side that
+   *                  faces away from the note box (default 12.0)
    * @return Index of hit handle, or -1 if no hit
    */
   int hitTest(float worldX, float worldY, float tolerance = 12.0f) const;
@@ -78,8 +83,6 @@ public:
 private:
   std::vector<Handle> handles;
   int hoveredHandleIndex = -1;
-
-  static constexpr float HANDLE_SIZE = 10.0f;
 
   void addHandle(HandleType type, float worldX, float worldY, Note* note = nullptr);
   juce::Colour getColorForType(HandleType type) const;

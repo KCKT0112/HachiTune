@@ -6,6 +6,7 @@
 #include "../JuceHeader.h"
 #include "../Models/Project.h"
 #include "../Undo/UndoActions.h"
+#include "../Utils/FourierPitchFilter.h"
 #include "CustomMenuBarLookAndFeel.h"
 #include "CustomTitleBar.h"
 #include "Commands.h"
@@ -20,6 +21,8 @@
 
 #include <atomic>
 #include <cstdint>
+
+class PitchFilterDebugWindow;
 
 class MainComponent : public juce::Component,
                       public juce::Timer,
@@ -137,6 +140,12 @@ private:
   void refreshRecentFilesMenu();
 
   void onNoteSelected(Note *note);
+  void openPitchFilterDebugWindow();
+  void updatePitchFilterDebugWindow(Note *note);
+  void showPitchFilterDebugPreview(
+      Note* note,
+      const std::vector<float>& originalCurve,
+      const FourierPitchFilter::FilterResult& result);
   void onPitchEdited();
   void onZoomChanged(float pixelsPerSecond);
   void reinterpolateUV(int startFrame,
@@ -182,6 +191,7 @@ private:
   ParameterPanel parameterPanel;
 
   std::unique_ptr<SettingsOverlay> settingsOverlay;
+  std::unique_ptr<PitchFilterDebugWindow> pitchFilterDebugWindow;
 
   std::unique_ptr<juce::FileChooser> fileChooser;
   juce::StringArray recentFiles;

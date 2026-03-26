@@ -5,6 +5,25 @@
 
 namespace PitchCurveProcessor
 {
+    void setPitchFilterContextSeconds(float seconds);
+    float getPitchFilterContextSeconds();
+
+    struct PitchFilterNoteContext
+    {
+        std::vector<float> contextDelta;
+        std::vector<float> noteDelta;
+        int contextStartFrame = 0;
+        int cropStartFrame = 0;
+        int cropFrameCount = 0;
+        float frameRateHz = 0.0f;
+    };
+
+    struct SmoothingDebugSegment
+    {
+        std::vector<int> frames;
+        std::vector<float> idealMidiValues;
+    };
+
     /**
      * Linearly interpolate pitch through unvoiced regions using the uv mask.
      * Returns a dense pitch (Hz) array with the same length as the input.
@@ -20,19 +39,33 @@ namespace PitchCurveProcessor
     void rebuildBaseFromNotes(Project& project);
 
     /**
-     * Rebuild delta pitch and f0 only for specific notes (partial rebuild).
-     * Skips basePitch regeneration (assumes positions unchanged).
-     * Much faster than rebuildBaseFromNotes() when only transformation
-     * parameters change on a few notes.
+     * Rebuild delta pitch from notes after parameter edits.
+     *
+     * Boundary smoothing now spans both notes around a transition, so this
+     * currently falls back to a full note rebuild for correctness.
      */
     void rebuildDeltaForNotes(Project& project, const std::vector<Note*>& affectedNotes);
 
     /**
+     * Expand a note set to include immediate non-rest neighbors whose boundary
+     * smoothing depends on the edited notes.
+     */
+    std::vector<Note*> collectDependentNotes(Project& project,
+                                             const std::vector<Note*>& seedNotes);
+
+    /**
+     * Collect the current ideal boundary-smoothing curves for debug drawing.
+     * The returned MIDI curves are the unblended Bezier targets before they are
+     * mixed back into the dense delta pitch. These targets are built on top of
+     * the dense base-pitch path, not the current raw F0 contour.
+     */
+    std::vector<SmoothingDebugSegment> collectIdealSmoothingDebugSegments(
+        const Project& project);
+
+    /**
      * Lightweight rebuild for interactive stretch drag.
-     * Regenerates basePitch from ALL notes (needed for correct pitch display),
-     * but only processes deltaPitch for the specified affected notes instead
-     * of iterating every note.  Recomposes f0 only for the affected range.
-     * Much faster than rebuildBaseFromNotes() during interactive drag.
+     * Currently falls back to a full rebuild so the shared boundary smoothing
+     * model stays consistent while note timing is changing.
      */
     void rebuildBaseFromNotesForDrag(Project& project, const std::vector<Note*>& affectedNotes);
 
@@ -43,6 +76,16 @@ namespace PitchCurveProcessor
      */
     void rebuildCurvesFromSource(Project& project,
                                  const std::vector<float>& sourcePitchHz);
+
+    /**
+     * Build the extended source-delta context used by the FFT pitch filter.
+     * The returned context includes a fixed amount of neighboring time around
+     * the target note, along with the crop region for the note itself.
+     */
+    PitchFilterNoteContext buildPitchFilterNoteContext(
+        const Project& project,
+        const Note& note,
+        float contextSeconds = -1.0f);
 
     /**
      * Compose f0 (Hz) from base + delta + optional global offset.

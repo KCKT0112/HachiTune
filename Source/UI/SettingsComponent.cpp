@@ -1,5 +1,6 @@
 #include "SettingsComponent.h"
 #include "../Utils/Constants.h"
+#include "../Utils/PitchCurveProcessor.h"
 #include "../Utils/UI/Theme.h"
 #include "../Utils/Localization.h"
 
@@ -177,7 +178,7 @@ SettingsComponent::SettingsComponent(
   pitchDetectorComboBox.setLookAndFeel(&settingsLookAndFeel);
   addAndMakeVisible(pitchDetectorComboBox);
 
-  gameChunksDebugLabel.setText("Show GAME chunks (debug)",
+  gameChunksDebugLabel.setText(TR("settings.show_game_chunks_debug"),
                                juce::dontSendNotification);
   configureRowLabel(gameChunksDebugLabel);
   addAndMakeVisible(gameChunksDebugLabel);
@@ -197,7 +198,7 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(segmentsDebugToggle);
 
-  gameValuesDebugLabel.setText("Show GAME values (debug)",
+  gameValuesDebugLabel.setText(TR("settings.show_game_values_debug"),
                                juce::dontSendNotification);
   configureRowLabel(gameValuesDebugLabel);
   addAndMakeVisible(gameValuesDebugLabel);
@@ -217,7 +218,7 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(gameValuesDebugToggle);
 
-  uvInterpolationDebugLabel.setText("Show UV interpolation (debug)",
+  uvInterpolationDebugLabel.setText(TR("settings.show_uv_interpolation_debug"),
                                     juce::dontSendNotification);
   configureRowLabel(uvInterpolationDebugLabel);
   addAndMakeVisible(uvInterpolationDebugLabel);
@@ -237,7 +238,7 @@ SettingsComponent::SettingsComponent(
   };
   addAndMakeVisible(uvInterpolationDebugToggle);
 
-  actualF0DebugLabel.setText("Show actual F0 (debug)",
+  actualF0DebugLabel.setText(TR("settings.show_actual_f0_debug"),
                              juce::dontSendNotification);
   configureRowLabel(actualF0DebugLabel);
   addAndMakeVisible(actualF0DebugLabel);
@@ -256,6 +257,89 @@ SettingsComponent::SettingsComponent(
       onShowActualF0DebugChanged(showActualF0Debug);
   };
   addAndMakeVisible(actualF0DebugToggle);
+
+  idealSmoothingCurveDebugLabel.setText(
+      TR("settings.show_ideal_smoothing_curve_debug"),
+      juce::dontSendNotification);
+  configureRowLabel(idealSmoothingCurveDebugLabel);
+  addAndMakeVisible(idealSmoothingCurveDebugLabel);
+
+  idealSmoothingCurveDebugToggle.setButtonText("");
+  idealSmoothingCurveDebugToggle.setClickingTogglesState(true);
+  idealSmoothingCurveDebugToggle.onClick = [this]()
+  {
+    showIdealSmoothingCurveDebug =
+        idealSmoothingCurveDebugToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowIdealSmoothingCurveDebug(
+          showIdealSmoothingCurveDebug);
+      settingsManager->saveConfig();
+    }
+    if (onShowIdealSmoothingCurveDebugChanged)
+      onShowIdealSmoothingCurveDebugChanged(showIdealSmoothingCurveDebug);
+  };
+  addAndMakeVisible(idealSmoothingCurveDebugToggle);
+
+  pitchToolMouseMoveLabel.setText(TR("settings.show_pitch_tool_mouse_move"),
+                                  juce::dontSendNotification);
+  configureRowLabel(pitchToolMouseMoveLabel);
+  addAndMakeVisible(pitchToolMouseMoveLabel);
+
+  pitchToolMouseMoveToggle.setButtonText("");
+  pitchToolMouseMoveToggle.setClickingTogglesState(true);
+  pitchToolMouseMoveToggle.onClick = [this]()
+  {
+    showPitchToolOnMouseMove = pitchToolMouseMoveToggle.getToggleState();
+    if (settingsManager)
+    {
+      settingsManager->setShowPitchToolOnMouseMove(showPitchToolOnMouseMove);
+      settingsManager->saveConfig();
+    }
+    if (onShowPitchToolOnMouseMoveChanged)
+      onShowPitchToolOnMouseMoveChanged(showPitchToolOnMouseMove);
+  };
+  addAndMakeVisible(pitchToolMouseMoveToggle);
+
+  pitchFilterDebugWindowLabel.setText(
+      TR("settings.show_pitch_filter_debug_window"),
+      juce::dontSendNotification);
+  configureRowLabel(pitchFilterDebugWindowLabel);
+  addAndMakeVisible(pitchFilterDebugWindowLabel);
+
+  configureTabButton(pitchFilterDebugWindowButton);
+  pitchFilterDebugWindowButton.setButtonText(TR("settings.open_debug_window"));
+  pitchFilterDebugWindowButton.onClick = [this]()
+  {
+    if (onOpenPitchFilterDebugWindowRequested)
+      onOpenPitchFilterDebugWindowRequested();
+  };
+  addAndMakeVisible(pitchFilterDebugWindowButton);
+
+  pitchFilterContextRangeLabel.setText("Pitch filter context range",
+                                       juce::dontSendNotification);
+  configureRowLabel(pitchFilterContextRangeLabel);
+  addAndMakeVisible(pitchFilterContextRangeLabel);
+
+  pitchFilterContextRangeSlider.setSliderStyle(
+      juce::Slider::LinearHorizontal);
+  pitchFilterContextRangeSlider.setTextBoxStyle(
+      juce::Slider::TextBoxRight, false, 72, 24);
+  pitchFilterContextRangeSlider.setRange(0.25, 4.0, 0.25);
+  pitchFilterContextRangeSlider.setTextValueSuffix(" s");
+  pitchFilterContextRangeSlider.onValueChange = [this]()
+  {
+    pitchFilterContextSeconds =
+        static_cast<float>(pitchFilterContextRangeSlider.getValue());
+    PitchCurveProcessor::setPitchFilterContextSeconds(
+        pitchFilterContextSeconds);
+    if (settingsManager)
+    {
+      settingsManager->setPitchFilterContextSeconds(pitchFilterContextSeconds);
+      settingsManager->saveConfig();
+    }
+  };
+  addAndMakeVisible(pitchFilterContextRangeSlider);
 
   // Info label
   infoLabel.setColour(juce::Label::textColourId, APP_COLOR_TEXT_MUTED);
@@ -335,9 +419,9 @@ SettingsComponent::SettingsComponent(
 
   // Set size based on mode
   if (pluginMode)
-    setSize(720, 420);
+    setSize(720, 500);
   else
-    setSize(820, 620);
+    setSize(820, 700);
 }
 
 SettingsComponent::~SettingsComponent()
@@ -360,6 +444,9 @@ SettingsComponent::~SettingsComponent()
   gameValuesDebugToggle.setLookAndFeel(nullptr);
   uvInterpolationDebugToggle.setLookAndFeel(nullptr);
   actualF0DebugToggle.setLookAndFeel(nullptr);
+  idealSmoothingCurveDebugToggle.setLookAndFeel(nullptr);
+  pitchToolMouseMoveToggle.setLookAndFeel(nullptr);
+  pitchFilterDebugWindowButton.setLookAndFeel(nullptr);
 }
 
 void SettingsComponent::changeListenerCallback(
@@ -495,6 +582,10 @@ void SettingsComponent::resized()
     layoutRow(gameValuesDebugLabel, gameValuesDebugToggle);
     layoutRow(uvInterpolationDebugLabel, uvInterpolationDebugToggle);
     layoutRow(actualF0DebugLabel, actualF0DebugToggle);
+    layoutRow(idealSmoothingCurveDebugLabel, idealSmoothingCurveDebugToggle);
+    layoutRow(pitchToolMouseMoveLabel, pitchToolMouseMoveToggle);
+    layoutRow(pitchFilterDebugWindowLabel, pitchFilterDebugWindowButton);
+    layoutRow(pitchFilterContextRangeLabel, pitchFilterContextRangeSlider);
 
     infoLabel.setBounds(content.removeFromTop(56));
     content.removeFromTop(12);
@@ -743,6 +834,12 @@ void SettingsComponent::updateTabVisibility()
   uvInterpolationDebugToggle.setVisible(showGeneral);
   actualF0DebugLabel.setVisible(showGeneral);
   actualF0DebugToggle.setVisible(showGeneral);
+  idealSmoothingCurveDebugLabel.setVisible(showGeneral);
+  idealSmoothingCurveDebugToggle.setVisible(showGeneral);
+  pitchToolMouseMoveLabel.setVisible(showGeneral);
+  pitchToolMouseMoveToggle.setVisible(showGeneral);
+  pitchFilterDebugWindowLabel.setVisible(showGeneral);
+  pitchFilterDebugWindowButton.setVisible(showGeneral);
   infoLabel.setVisible(showGeneral);
 
   audioSectionLabel.setVisible(showAudio);
@@ -1078,6 +1175,11 @@ void SettingsComponent::loadSettings()
     showGameValuesDebug = settingsManager->getShowGameValuesDebug();
     showUvInterpolationDebug = settingsManager->getShowUvInterpolationDebug();
     showActualF0Debug = settingsManager->getShowActualF0Debug();
+    showIdealSmoothingCurveDebug =
+        settingsManager->getShowIdealSmoothingCurveDebug();
+    showPitchToolOnMouseMove = settingsManager->getShowPitchToolOnMouseMove();
+    pitchFilterContextSeconds =
+        settingsManager->getPitchFilterContextSeconds();
 
     auto langCode = settingsManager->getLanguage();
     if (langCode == "auto")
@@ -1135,6 +1237,13 @@ void SettingsComponent::loadSettings()
                                             juce::dontSendNotification);
   actualF0DebugToggle.setToggleState(showActualF0Debug,
                                      juce::dontSendNotification);
+  idealSmoothingCurveDebugToggle.setToggleState(
+      showIdealSmoothingCurveDebug, juce::dontSendNotification);
+  pitchToolMouseMoveToggle.setToggleState(showPitchToolOnMouseMove,
+                                          juce::dontSendNotification);
+  pitchFilterContextRangeSlider.setValue(pitchFilterContextSeconds,
+                                         juce::dontSendNotification);
+  PitchCurveProcessor::setPitchFilterContextSeconds(pitchFilterContextSeconds);
 
   hasLoadedSettings = true;
   lastConfirmedDevice = currentDevice;
@@ -1171,6 +1280,10 @@ void SettingsComponent::saveSettings()
     settingsManager->setShowGameValuesDebug(showGameValuesDebug);
     settingsManager->setShowUvInterpolationDebug(showUvInterpolationDebug);
     settingsManager->setShowActualF0Debug(showActualF0Debug);
+    settingsManager->setShowIdealSmoothingCurveDebug(
+        showIdealSmoothingCurveDebug);
+    settingsManager->setShowPitchToolOnMouseMove(showPitchToolOnMouseMove);
+    settingsManager->setPitchFilterContextSeconds(pitchFilterContextSeconds);
     settingsManager->setFollowSystemAudioOutput(followSystemAudioOutput);
     settingsManager->setPreferredAudioOutputDevice(preferredAudioOutputDevice);
     settingsManager->saveConfig();
